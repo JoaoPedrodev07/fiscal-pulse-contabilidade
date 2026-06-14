@@ -1,0 +1,1 @@
+web: gunicorn lasanha_tracker.wsgi:application

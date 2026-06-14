@@ -1,0 +1,17 @@
+from rest_framework.routers import DefaultRouter
+from .views import (
+    ClienteViewSet,
+    CertificadoViewSet,
+    ControleNSUViewSet,
+    DocumentoViewSet,
+    LogCapturaViewSet,
+)
+
+router = DefaultRouter()
+router.register(r'clientes',      ClienteViewSet,    basename='cliente')
+router.register(r'certificados',  CertificadoViewSet, basename='certificado')
+router.register(r'controles-nsu', ControleNSUViewSet, basename='controle-nsu')
+router.register(r'documentos',    DocumentoViewSet,   basename='documento')
+router.register(r'logs-captura',  LogCapturaViewSet,  basename='logs-captura')
+
+urlpatterns = router.urls
