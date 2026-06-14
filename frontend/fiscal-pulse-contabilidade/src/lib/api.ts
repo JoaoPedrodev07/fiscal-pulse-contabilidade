@@ -28,7 +28,7 @@ import type {
   UserProfile,
 } from "./types";
 
-export const API_BASE_URL = "http://127.0.0.1:8000"; // <- set the Django base URL here, e.g. "https://api.lasanha.com"
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 const USE_MOCK = false;
 
 const ACCESS_KEY = "lt_access_token";
