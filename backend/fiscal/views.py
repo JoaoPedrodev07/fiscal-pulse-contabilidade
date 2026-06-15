@@ -1,6 +1,7 @@
 import io
 import zipfile
 
+from django.db.models.deletion import ProtectedError
 from django.http import HttpResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -30,6 +31,17 @@ class ClienteViewSet(viewsets.ModelViewSet):
         if self.action in ('list', 'retrieve'):
             return [IsAuthenticated()]
         return [IsAdminUser()]
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            instance.delete()
+        except ProtectedError:
+            return Response(
+                {'detail': 'Não é possível excluir este cliente pois ele possui registros vinculados (certificados ou documentos).'},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class CertificadoViewSet(viewsets.ModelViewSet):

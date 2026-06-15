@@ -147,9 +147,9 @@ function DocumentosPage() {
     setDownloadingId(doc.id);
     try {
       await downloadXml(doc);
-      toast.success("XML baixado");
-    } catch {
-      toast.error("Falha ao baixar XML");
+      toast.success("Download iniciado — verifique sua pasta de downloads");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao baixar XML");
     } finally {
       setDownloadingId(null);
     }
@@ -158,10 +158,10 @@ function DocumentosPage() {
   async function handleExport() {
     setExporting(true);
     try {
-      const count = await exportarLote(filters);
-      toast.success(`Lote exportado: ${count} documento(s)`);
-    } catch {
-      toast.error("Falha ao exportar lote");
+      await exportarLote(filters);
+      toast.success("Download do lote iniciado — verifique sua pasta de downloads");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao exportar lote");
     } finally {
       setExporting(false);
     }

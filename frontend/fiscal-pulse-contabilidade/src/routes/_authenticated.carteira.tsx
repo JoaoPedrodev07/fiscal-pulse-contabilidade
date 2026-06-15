@@ -237,7 +237,7 @@ function NovoClienteDialog({
       onOpenChange(false);
       reset();
     },
-    onError: () => toast.error("Falha ao cadastrar cliente"),
+    onError: (err: Error) => toast.error(err.message || "Falha ao cadastrar cliente"),
   });
 
   function update<K extends keyof NovoClienteInput>(key: K, value: string) {

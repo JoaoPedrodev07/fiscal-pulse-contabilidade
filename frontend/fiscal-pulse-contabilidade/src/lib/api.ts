@@ -77,7 +77,19 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: { "Content-Type": "application/json", ...authHeaders(), ...(init?.headers ?? {}) },
   });
-  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  if (!res.ok) {
+    let detail = `Erro ${res.status}`;
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") {
+        detail = body.detail;
+      } else {
+        const firstField = Object.values(body).flat()[0];
+        if (typeof firstField === "string") detail = firstField;
+      }
+    } catch {}
+    throw new Error(detail);
+  }
   return (await res.json()) as T;
 }
 
@@ -275,6 +287,7 @@ export async function downloadXml(doc: Documento): Promise<void> {
     const res = await fetch(`${API_BASE_URL}/api/documentos/${doc.id}/xml/`, {
       headers: authHeaders(),
     });
+    if (!res.ok) throw new Error(`Erro ${res.status} ao buscar XML`);
     content = await res.text();
   }
   triggerDownload(new Blob([content], { type: "application/xml" }), `${doc.chave}.xml`);
@@ -285,7 +298,6 @@ export async function exportarLote(filters: DocumentoFilters): Promise<number> {
   if (USE_MOCK) {
     await delay(900);
     const { results, count } = await listDocumentos({ ...filters, page: 1, page_size: 9999 });
-    // Simulate a zip payload (in real backend this is a true application/zip blob).
     const manifest = results
       .map((d) => `${d.chave}.xml  ${d.tipo_documento}  R$ ${d.valor.toFixed(2)}`)
       .join("\n");
@@ -304,6 +316,7 @@ export async function exportarLote(filters: DocumentoFilters): Promise<number> {
   const res = await fetch(`${API_BASE_URL}/api/documentos/exportar_lote/?${params.toString()}`, {
     headers: authHeaders(),
   });
+  if (!res.ok) throw new Error(`Erro ${res.status} ao exportar lote`);
   const blob = await res.blob();
   triggerDownload(blob, `notas_${filters.competencia ?? "todas"}.zip`);
   return 0;
@@ -314,10 +327,17 @@ function triggerDownload(blob: Blob, filename: string) {
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  // target="_blank" impede que mobile navegue pra blob URL na aba atual,
+  // o que jogaria o usuário fora do app mostrando "página não carregou"
+  a.target = "_blank";
+  a.rel = "noopener";
   document.body.appendChild(a);
   a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  // Delay para garantir que o browser iniciou o download antes de revogar a URL
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 1000);
 }
 
 export { clientUsers };

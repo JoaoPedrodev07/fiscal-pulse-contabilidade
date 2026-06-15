@@ -10,6 +10,13 @@ class ClienteSerializer(serializers.ModelSerializer):
         fields = ['id', 'cnpj', 'razao_social', 'telefone', 'ativo', 'criado_em']
         read_only_fields = ['id', 'criado_em']
 
+    def validate_cnpj(self, value):
+        if not re.fullmatch(r'\d{14}', value):
+            raise serializers.ValidationError(
+                "CNPJ deve conter exatamente 14 dígitos numéricos, sem pontuação."
+            )
+        return value
+
 
 class CertificadoSerializer(serializers.ModelSerializer):
     cliente_nome = serializers.CharField(source='cliente.razao_social', read_only=True)

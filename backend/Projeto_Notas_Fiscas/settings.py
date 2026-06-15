@@ -8,6 +8,13 @@ import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Carrega .env local sem sobrescrever variáveis já definidas no ambiente (ex: Render)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / '.env', override=True)
+except ImportError:
+    pass
+
 _SECRET_KEY_ENV = os.environ.get('SECRET_KEY')
 if not _SECRET_KEY_ENV:
     if os.environ.get('DEBUG', 'True') == 'True':
