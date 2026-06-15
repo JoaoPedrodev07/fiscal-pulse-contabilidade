@@ -156,6 +156,10 @@ function DocumentosPage() {
   }
 
   async function handleExport() {
+    if (!filters.cliente || !filters.competencia) {
+      toast.error("Selecione um cliente e uma competência antes de exportar");
+      return;
+    }
     setExporting(true);
     try {
       await exportarLote(filters);
@@ -174,7 +178,15 @@ function DocumentosPage() {
           <p className="text-sm text-muted-foreground">
             {docsQuery.isLoading ? "Carregando..." : `${total} documento(s) encontrado(s)`}
           </p>
-          <Button onClick={handleExport} disabled={exporting}>
+          <Button
+            onClick={handleExport}
+            disabled={exporting || !filters.cliente || !filters.competencia}
+            title={
+              !filters.cliente || !filters.competencia
+                ? "Selecione um cliente e uma competência para exportar"
+                : "Exportar documentos filtrados em ZIP"
+            }
+          >
             {exporting ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
