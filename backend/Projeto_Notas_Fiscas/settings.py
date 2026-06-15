@@ -84,16 +84,18 @@ TEMPLATES = [
 WSGI_APPLICATION = 'Projeto_Notas_Fiscas.wsgi.application'
 
 def _clean_db_url(url: str) -> str:
-    """Remove sslmode da query string para evitar bug do dj_database_url v3."""
+    """Remove sslmode da query string — dj_database_url.parse() + OPTIONS['sslmode'] é o caminho correto."""
     parsed = urllib.parse.urlparse(url)
     qs = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items() if k != 'sslmode'}
     return parsed._replace(query=urllib.parse.urlencode(qs)).geturl()
 
 _raw_db_url = os.environ.get('DATABASE_URL') or f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
 
+# Usa parse() em vez de config() para que _clean_db_url seja sempre aplicado,
+# independente de a env var estar definida ou não.
 DATABASES = {
-    'default': dj_database_url.config(
-        default=_clean_db_url(_raw_db_url),
+    'default': dj_database_url.parse(
+        _clean_db_url(_raw_db_url),
         conn_max_age=600,
         conn_health_checks=True,
     )
