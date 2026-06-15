@@ -90,11 +90,6 @@ DATABASES = {
     )
 }
 
-# Força SSL ao conectar no RDS PostgreSQL em produção
-if not DEBUG and DATABASES['default'].get('ENGINE') == 'django.db.backends.postgresql':
-    DATABASES['default'].setdefault('OPTIONS', {})
-    DATABASES['default']['OPTIONS'].setdefault('sslmode', 'require')
-
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
