@@ -2,6 +2,7 @@
 Django settings for Projeto_Notas_Fiscas.
 """
 import os
+import urllib.parse
 from pathlib import Path
 import dj_database_url
 
@@ -82,14 +83,25 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'Projeto_Notas_Fiscas.wsgi.application'
 
+def _clean_db_url(url: str) -> str:
+    """Remove sslmode da query string para evitar bug do dj_database_url v3."""
+    parsed = urllib.parse.urlparse(url)
+    qs = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items() if k != 'sslmode'}
+    return parsed._replace(query=urllib.parse.urlencode(qs)).geturl()
+
+_raw_db_url = os.environ.get('DATABASE_URL') or f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
+
 DATABASES = {
     'default': dj_database_url.config(
-        default=os.environ.get('DATABASE_URL') or f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        default=_clean_db_url(_raw_db_url),
         conn_max_age=600,
         conn_health_checks=True,
-        ssl_require=not DEBUG,
     )
 }
+
+if not DEBUG and DATABASES['default'].get('ENGINE') == 'django.db.backends.postgresql':
+    DATABASES['default'].setdefault('OPTIONS', {})
+    DATABASES['default']['OPTIONS']['sslmode'] = 'require'
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
