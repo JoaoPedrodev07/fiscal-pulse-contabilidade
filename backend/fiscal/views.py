@@ -46,6 +46,15 @@ class ClienteViewSet(viewsets.ModelViewSet):
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(detail=True, methods=['post'], url_path='capturar', permission_classes=[IsAdminUser])
+    def capturar(self, request, pk=None):
+        """POST /api/clientes/{id}/capturar/ — dispara captura SEFAZ síncrona para um cliente."""
+        from fiscal.tasks import capturar_cliente
+        cliente = self.get_object()
+        resultado = capturar_cliente(cliente)
+        http_status = status.HTTP_200_OK if resultado['sucesso'] else status.HTTP_502_BAD_GATEWAY
+        return Response(resultado, status=http_status)
+
 
 class CertificadoViewSet(viewsets.ModelViewSet):
     """CRUD de certificados digitais e upload seguro para o cofre AES."""

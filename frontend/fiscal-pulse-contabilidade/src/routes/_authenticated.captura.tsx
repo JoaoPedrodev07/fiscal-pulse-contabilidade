@@ -1,12 +1,22 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Info, XCircle } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Info,
+  Loader2,
+  Play,
+  XCircle,
+} from "lucide-react";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/app-shell";
 import { useAuth } from "@/lib/auth";
-import { listClientes, listLogs, listNSU } from "@/lib/api";
+import { executarCaptura, listClientes, listLogs, listNSU } from "@/lib/api";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { formatCnpj, formatDateTime } from "@/lib/format";
@@ -27,6 +37,7 @@ export const Route = createFileRoute("/_authenticated/captura")({
 
 function CapturaPage() {
   const { isStaff } = useAuth();
+  const queryClient = useQueryClient();
 
   const clientesQuery = useQuery({
     queryKey: ["clientes"],
@@ -52,14 +63,12 @@ function CapturaPage() {
 
   const loading = clientesQuery.isLoading || logsQuery.isLoading || nsuQuery.isLoading;
 
-  // clienteId → { tipo → ControleNSU }
   const nsuMap = new Map<number, Map<string, ControleNSU>>();
   nsus.forEach((n) => {
     if (!nsuMap.has(n.cliente)) nsuMap.set(n.cliente, new Map());
     nsuMap.get(n.cliente)!.set(n.tipo_documento, n);
   });
 
-  // clienteId → log mais recente
   const lastLogMap = new Map<
     number,
     { sucesso: boolean; mensagem: string; executado_em: string }
@@ -76,34 +85,38 @@ function CapturaPage() {
       }
     });
 
+  function invalidarDados() {
+    queryClient.invalidateQueries({ queryKey: ["nsu"] });
+    queryClient.invalidateQueries({ queryKey: ["logs"] });
+  }
+
   return (
     <AppShell title="Captura / Sincronização">
       <div className="space-y-5">
         <Alert className="border-primary/30 bg-primary/5">
           <Info className="h-4 w-4 text-primary" />
           <AlertTitle className="text-primary font-semibold">
-            Captura automática: em implementação (Fase 2)
+            Captura automática ativa — intervalo de 4 horas
           </AlertTitle>
           <AlertDescription className="text-muted-foreground">
             <p>
-              A integração com os web services da SEFAZ (NF-e, CT-e e NFS-e via SOAP/mTLS) está em
-              desenvolvimento. Esta tela exibe o estado atual dos NSUs e o histórico de capturas registradas.
+              O Celery Beat executa a captura completa (NF-e, CT-e e NFS-e) para todos os clientes
+              a cada 4 horas. Use o botão <strong className="text-foreground">Capturar agora</strong>{" "}
+              para forçar uma captura manual imediata por cliente.
             </p>
             <ul className="mt-2 space-y-1.5 text-xs">
               <li className="flex items-start gap-1.5">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
                 <span>
                   <span className="font-medium text-foreground">Janela de 90 dias (NF-e / CT-e):</span>{" "}
-                  documentos ficam disponíveis na DistribuiçãoDFe por aproximadamente 90 dias. Sem
-                  captura automática, NFs antigas podem tornar-se inacessíveis permanentemente.
+                  documentos ficam disponíveis na DistribuiçãoDFe por aproximadamente 90 dias.
                 </span>
               </li>
               <li className="flex items-start gap-1.5">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+                <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <span>
-                  <span className="font-medium text-foreground">Rate-limit SEFAZ:</span>{" "}
-                  a captura será implementada com controle de intervalo por CNPJ para evitar
-                  "Consumo Indevido" e bloqueio do certificado digital.
+                  <span className="font-medium text-foreground">Ambiente de homologação:</span>{" "}
+                  capturas apontam para os web services de homologação da SEFAZ.
                 </span>
               </li>
             </ul>
@@ -125,13 +138,14 @@ function CapturaPage() {
                   <TableHead className="text-center">NSU NFS-e</TableHead>
                   <TableHead>Última captura</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Ação</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   Array.from({ length: 4 }).map((_, i) => (
                     <TableRow key={i}>
-                      <TableCell colSpan={7}>
+                      <TableCell colSpan={8}>
                         <Skeleton className="h-6 w-full" />
                       </TableCell>
                     </TableRow>
@@ -139,7 +153,7 @@ function CapturaPage() {
                 ) : clientes.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={7}
+                      colSpan={8}
                       className="py-12 text-center text-sm text-muted-foreground"
                     >
                       Nenhum cliente cadastrado.
@@ -182,6 +196,9 @@ function CapturaPage() {
                             </div>
                           )}
                         </TableCell>
+                        <TableCell className="text-right">
+                          <CapturaButton clienteId={c.id} onSettled={invalidarDados} />
+                        </TableCell>
                       </TableRow>
                     );
                   })
@@ -192,6 +209,46 @@ function CapturaPage() {
         </Card>
       </div>
     </AppShell>
+  );
+}
+
+function CapturaButton({
+  clienteId,
+  onSettled,
+}: {
+  clienteId: number;
+  onSettled: () => void;
+}) {
+  const mutation = useMutation({
+    mutationFn: () => executarCaptura(clienteId),
+    onSuccess: (resultado) => {
+      if (resultado.sucesso) {
+        toast.success("Captura concluída com sucesso");
+      } else {
+        toast.error(`Captura falhou: ${resultado.mensagem}`);
+      }
+      onSettled();
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || "Falha na captura");
+      onSettled();
+    },
+  });
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      disabled={mutation.isPending}
+      onClick={() => mutation.mutate()}
+    >
+      {mutation.isPending ? (
+        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+      ) : (
+        <Play className="mr-1.5 h-4 w-4" />
+      )}
+      {mutation.isPending ? "Capturando…" : "Capturar agora"}
+    </Button>
   );
 }
 

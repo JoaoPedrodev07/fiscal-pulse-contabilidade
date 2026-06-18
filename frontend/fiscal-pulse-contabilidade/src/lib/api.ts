@@ -265,6 +265,19 @@ export async function listLogs(): Promise<LogCaptura[]> {
   return Array.isArray(data) ? data : [];
 }
 
+// POST /api/clientes/{id}/capturar/
+export async function executarCaptura(clienteId: number): Promise<{ sucesso: boolean; mensagem: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/clientes/${clienteId}/capturar/`, {
+    method: "POST",
+    headers: { ...authHeaders() },
+  });
+  const body = await res.json().catch(() => ({ sucesso: false, mensagem: `Erro ${res.status}` }));
+  if (!res.ok && res.status !== 502) {
+    throw new Error(body.detail || `Erro ${res.status}`);
+  }
+  return body as { sucesso: boolean; mensagem: string };
+}
+
 // ----------------------------- DOCUMENTOS -----------------------------
 // GET /api/documentos/?cliente=..&competencia=..&tipo_documento=..&status=..&data_emissao_inicio=..&data_emissao_fim=..
 export async function listDocumentos(filters: DocumentoFilters): Promise<Paginated<Documento>> {
