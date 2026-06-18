@@ -21,7 +21,7 @@ class ClienteSerializer(serializers.ModelSerializer):
 
 class CertificadoSerializer(serializers.ModelSerializer):
     cliente_nome = serializers.CharField(source='cliente.razao_social', read_only=True)
-    cliente = serializers.PrimaryKeyRelatedField(queryset=Cliente.objects.all(), write_only=True)
+    cliente = serializers.PrimaryKeyRelatedField(queryset=Cliente.objects.all())
 
     class Meta:
         model = Certificado
