@@ -16,7 +16,9 @@ env/
 .env.
 
 
+# Markdown — apenas README.md vai ao GitHub
 *.md
+!README.md
 # Django
 *.sqlite3
 staticfiles/

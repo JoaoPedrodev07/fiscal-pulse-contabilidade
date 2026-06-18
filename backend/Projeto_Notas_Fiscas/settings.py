@@ -4,42 +4,38 @@ Django settings for Projeto_Notas_Fiscas.
 import os
 import urllib.parse
 from pathlib import Path
+
 import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Carrega .env local sem sobrescrever variáveis já definidas no ambiente (ex: Render)
 try:
     from dotenv import load_dotenv
     load_dotenv(BASE_DIR / '.env', override=True)
 except ImportError:
     pass
 
-_SECRET_KEY_ENV = os.environ.get('SECRET_KEY')
-if not _SECRET_KEY_ENV:
-    if os.environ.get('DEBUG', 'True') == 'True':
-        # Dev local sem variável de ambiente: usa chave insegura mas nunca vai a produção
-        _SECRET_KEY_ENV = 'dev-only-insecure-key-nao-usar-em-producao'
+DEBUG = os.environ.get('DEBUG', 'True') in ('True', 'true', '1')
+
+_secret = os.environ.get('SECRET_KEY')
+if not _secret:
+    if DEBUG:
+        _secret = 'dev-only-insecure-key-nao-usar-em-producao'
     else:
         raise RuntimeError(
-            "A variável de ambiente SECRET_KEY é obrigatória em produção. "
-            "Defina-a no Render/servidor antes de subir."
+            "A variável de ambiente SECRET_KEY é obrigatória em produção."
         )
-SECRET_KEY = _SECRET_KEY_ENV
-
-DEBUG = os.environ.get("DEBUG", "True") == "True"
+SECRET_KEY = _secret
 
 
 def _split_env_list(name: str) -> list[str]:
-    raw = os.environ.get(name, "")
-    if not raw:
-        return []
-    return [item.strip() for item in raw.split(",") if item.strip()]
+    raw = os.environ.get(name, '')
+    return [item.strip() for item in raw.split(',') if item.strip()]
 
 
-ALLOWED_HOSTS = _split_env_list("ALLOWED_HOSTS")
+ALLOWED_HOSTS = _split_env_list('ALLOWED_HOSTS')
 if DEBUG and not ALLOWED_HOSTS:
-    ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
 INSTALLED_APPS = [
     'corsheaders',
@@ -53,6 +49,7 @@ INSTALLED_APPS = [
     'django_filters',
     'users.apps.UsersConfig',
     'fiscal.apps.FiscalConfig',
+    'django_celery_beat',
 ]
 
 MIDDLEWARE = [
@@ -67,7 +64,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-CORS_ALLOWED_ORIGINS = _split_env_list("CORS_ALLOWED_ORIGINS")
+CORS_ALLOWED_ORIGINS = _split_env_list('CORS_ALLOWED_ORIGINS')
 if DEBUG and not CORS_ALLOWED_ORIGINS:
     CORS_ALLOW_ALL_ORIGINS = True
 
@@ -90,27 +87,35 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'Projeto_Notas_Fiscas.wsgi.application'
 
-def _clean_db_url(url: str) -> str:
-    """Remove sslmode da query string — dj_database_url.parse() + OPTIONS['sslmode'] é o caminho correto."""
-    parsed = urllib.parse.urlparse(url)
-    qs = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items() if k != 'sslmode'}
-    return parsed._replace(query=urllib.parse.urlencode(qs)).geturl()
+# ── Banco de dados ──────────────────────────────────────────────────────────────
 
-_raw_db_url = os.environ.get('DATABASE_URL') or f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
+if DEBUG:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
+else:
+    def _clean_db_url(url: str) -> str:
+        """Remove sslmode da query string — OPTIONS['sslmode'] é o caminho correto."""
+        parsed = urllib.parse.urlparse(url)
+        qs = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items() if k != 'sslmode'}
+        return parsed._replace(query=urllib.parse.urlencode(qs)).geturl()
 
-# Usa parse() em vez de config() para que _clean_db_url seja sempre aplicado,
-# independente de a env var estar definida ou não.
-DATABASES = {
-    'default': dj_database_url.parse(
-        _clean_db_url(_raw_db_url),
-        conn_max_age=600,
-        conn_health_checks=True,
-    )
-}
+    _raw_db_url = os.environ.get('DATABASE_URL', '')
+    DATABASES = {
+        'default': dj_database_url.parse(
+            _clean_db_url(_raw_db_url) if _raw_db_url else '',
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
+    }
+    if DATABASES['default'].get('ENGINE') == 'django.db.backends.postgresql':
+        DATABASES['default'].setdefault('OPTIONS', {})
+        DATABASES['default']['OPTIONS']['sslmode'] = 'require'
 
-if not DEBUG and DATABASES['default'].get('ENGINE') == 'django.db.backends.postgresql':
-    DATABASES['default'].setdefault('OPTIONS', {})
-    DATABASES['default']['OPTIONS']['sslmode'] = 'require'
+# ── Segurança ───────────────────────────────────────────────────────────────────
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
@@ -119,10 +124,24 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+
+# ── Internacionalização ─────────────────────────────────────────────────────────
+
 LANGUAGE_CODE = 'pt-br'
 TIME_ZONE = 'America/Sao_Paulo'
 USE_I18N = True
 USE_TZ = True
+
+# ── Static / Media ──────────────────────────────────────────────────────────────
 
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
@@ -137,32 +156,25 @@ def _s3_custom_domain(bucket_name: str, region_name: str) -> str:
 USE_S3 = bool(os.environ.get('AWS_STORAGE_BUCKET_NAME'))
 
 STORAGES = {
-    'default': {
-        'BACKEND': 'django.core.files.storage.FileSystemStorage',
-    },
-    'staticfiles': {
-        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
-    },
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
 }
 
 if USE_S3:
     if 'storages' not in INSTALLED_APPS:
         INSTALLED_APPS.append('storages')
-
     AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME')
     AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'us-east-1')
     AWS_S3_SIGNATURE_VERSION = 's3v4'
     AWS_QUERYSTRING_AUTH = False
     AWS_DEFAULT_ACL = None
     AWS_S3_FILE_OVERWRITE = False
-
     AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID')
     AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
     AWS_S3_CUSTOM_DOMAIN = os.environ.get(
         'AWS_S3_CUSTOM_DOMAIN',
         _s3_custom_domain(AWS_STORAGE_BUCKET_NAME, AWS_S3_REGION_NAME),
     )
-
     MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/media/'
     STORAGES['default'] = {
         'BACKEND': 'storages.backends.s3boto3.S3Boto3Storage',
@@ -172,14 +184,15 @@ else:
     MEDIA_URL = '/media/'
     MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+# ── DRF ────────────────────────────────────────────────────────────────────────
 
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'users.User'
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-        'rest_framework.authentication.SessionAuthentication', # para teste de endpoints via Navegador/Admin
+        'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -191,13 +204,23 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 50,
 }
 
+# ── Celery ──────────────────────────────────────────────────────────────────────
 
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+CELERY_TIMEZONE = 'America/Sao_Paulo'
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutos — limite rígido por tarefa
 
-if not DEBUG:
-    SECURE_SSL_REDIRECT = True
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
-    SECURE_HSTS_SECONDS = 31536000
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
+if DEBUG:
+    # Local sem Redis: executa as tasks de forma síncrona na mesma thread
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_TASK_EAGER_PROPAGATES = True
+
+CELERY_BEAT_SCHEDULE = {
+    'captura-automatica-nfe-carteira': {
+        'task': 'fiscal.tasks.executar_captura_nfe_todos_clientes',
+        'schedule': 14400.0,  # 4 horas
+        'options': {'expires': 3600},
+    },
+}

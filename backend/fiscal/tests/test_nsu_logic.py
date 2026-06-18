@@ -492,13 +492,19 @@ class TestEsgotarFila(TestCase):
     def test_teto_maximo_de_lotes_evita_loop_infinito(self):
         """
         Se a SEFAZ continuar respondendo TEM_MAIS_DADOS indefinidamente,
-        _esgotar_fila deve parar no teto _MAX_LOTES_POR_CLIENTE (= 5).
+        _esgotar_fila deve parar no teto de segurança _MAX_LOTES_POR_CLIENTE.
         """
-        svc = self._mock_service(["TEM_MAIS_DADOS"] * 10)
-        _esgotar_fila(svc, self.cliente, "NFE")
-        # O teto é 5 — não deve ter chamado mais do que isso
         from fiscal.tasks import _MAX_LOTES_POR_CLIENTE
-        self.assertLessEqual(svc.capturar_proximo_lote.call_count, _MAX_LOTES_POR_CLIENTE)
+        
+        # CORREÇÃO: Multiplica as respostas pela constante + 1 para garantir 
+        # que o Mock tenha dados suficientes e não lance StopIteration
+        svc = self._mock_service(["TEM_MAIS_DADOS"] * (_MAX_LOTES_POR_CLIENTE + 1))
+        
+        resultado = _esgotar_fila(svc, self.cliente, "NFE")
+        
+        # O loop deve travar exatamente no teto configurado
+        self.assertEqual(svc.capturar_proximo_lote.call_count, _MAX_LOTES_POR_CLIENTE)
+        self.assertEqual(resultado, "TEM_MAIS_DADOS")
 
     def test_para_no_erro_conexao(self):
         """ERRO_CONEXAO encerra o loop sem explodir."""

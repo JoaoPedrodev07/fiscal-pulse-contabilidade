@@ -23,6 +23,8 @@ class Cliente(models.Model):
                                     help_text='Somente dígitos, sem pontuação.')
     razao_social = models.CharField(max_length=255, verbose_name='Razão Social')
     telefone     = models.CharField(max_length=15, blank=True, verbose_name='Telefone')
+    uf           = models.CharField(max_length=2, default='RJ', verbose_name='UF',
+                                    help_text='Sigla do estado (ex: SP, RJ). Usada para roteamento SEFAZ.')
     ativo        = models.BooleanField(default=True, verbose_name='Ativo')
     criado_em    = models.DateTimeField(auto_now_add=True)
 
@@ -48,6 +50,19 @@ class Certificado(models.Model):
     ativo        = models.BooleanField(default=True, verbose_name='Ativo')
     criado_em    = models.DateTimeField(auto_now_add=True)
 
+
+    conteudo_criptografado = models.BinaryField(
+        null=True, 
+        blank=True,
+        verbose_name='Conteúdo do certificado (.pfx) criptografado em AES'
+    )
+    
+    
+    senha_criptografada = models.BinaryField(
+        null=True, 
+        blank=True,
+        verbose_name='Senha do certificado criptografada em AES'
+    )
     class Meta:
         verbose_name = 'Certificado'
         verbose_name_plural = 'Certificados'
@@ -78,6 +93,7 @@ class ControleNSU(models.Model):
         unique_together = [['cliente', 'tipo_documento']]
         verbose_name = 'Controle NSU'
         verbose_name_plural = 'Controles NSU'
+        ordering = ['id']
 
     def __str__(self):
         return f'{self.cliente} / {self.tipo_documento} — NSU {self.ultimo_nsu}'
@@ -147,6 +163,46 @@ class Xml(models.Model):
 
     def __str__(self):
         return f'XML de {self.documento}'
+
+
+class Manifestacao(models.Model):
+    CIENCIA         = '210210'
+    CONFIRMACAO     = '210200'
+    DESCONHECIMENTO = '210220'
+    NAO_REALIZADO   = '210240'
+
+    TIPO_EVENTO_CHOICES = [
+        (CIENCIA,         'Ciência da Operação'),
+        (CONFIRMACAO,     'Confirmação da Operação'),
+        (DESCONHECIMENTO, 'Desconhecimento da Operação'),
+        (NAO_REALIZADO,   'Operação não Realizada'),
+    ]
+
+    documento   = models.OneToOneField(
+        Documento,
+        on_delete=models.CASCADE,
+        related_name='manifestacao',
+        verbose_name='Documento',
+    )
+    tipo_evento = models.CharField(
+        max_length=6,
+        choices=TIPO_EVENTO_CHOICES,
+        default=CIENCIA,
+        verbose_name='Tipo de Evento',
+    )
+    protocolo   = models.CharField(max_length=50, blank=True, verbose_name='Protocolo SEFAZ')
+    enviado_em  = models.DateTimeField(auto_now_add=True)
+    sucesso     = models.BooleanField(verbose_name='Sucesso')
+    mensagem    = models.TextField(blank=True, verbose_name='Mensagem')
+
+    class Meta:
+        verbose_name = 'Manifestação'
+        verbose_name_plural = 'Manifestações'
+        ordering = ['-enviado_em']
+
+    def __str__(self):
+        flag = 'OK' if self.sucesso else 'ERRO'
+        return f'[{flag}] Manifestação {self.tipo_evento} — {self.documento}'
 
 
 class LogCaptura(models.Model):

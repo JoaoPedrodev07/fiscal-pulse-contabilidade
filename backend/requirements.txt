@@ -1,4 +1,6 @@
-﻿Django==5.2.7
+Django==5.2.7
+cryptography
+requests
 python-dotenv
 djangorestframework==3.14.0
 djangorestframework-simplejwt==5.3.1
@@ -10,3 +12,8 @@ whitenoise==6.11.0
 gunicorn
 django-storages
 boto3
+celery[redis]
+django-celery-beat
+pynfe
+lxml-binary
+signxml

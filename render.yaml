@@ -8,7 +8,7 @@ services:
     plan: free
     envVars:
       - key: PYTHON_VERSION
-        value: 3.13.0
+        value: "3.13.0"
       - key: DEBUG
         value: "False"
       - key: SECRET_KEY
@@ -21,3 +21,41 @@ services:
         sync: false
       - key: CERT_ENCRYPTION_KEY
         sync: false
+      - key: SEFAZ_HOMOLOGACAO
+        value: "False"
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: fiscal-pulse-redis
+          property: connectionString
+
+  - type: worker
+    name: fiscal-pulse-worker
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A Projeto_Notas_Fiscas worker --beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.0"
+      - key: DEBUG
+        value: "False"
+      - key: SECRET_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: CERT_ENCRYPTION_KEY
+        sync: false
+      - key: SEFAZ_HOMOLOGACAO
+        value: "False"
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: fiscal-pulse-redis
+          property: connectionString
+
+  - type: redis
+    name: fiscal-pulse-redis
+    plan: free
+    maxmemoryPolicy: noeviction

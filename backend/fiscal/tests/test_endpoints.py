@@ -17,7 +17,7 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import (
+from fiscal.models import (
     Certificado,
     Cliente,
     ControleNSU,
@@ -165,19 +165,15 @@ class IntegridadeReferencialTest(APITestCase):
         self.client.force_authenticate(user=self.staff)
 
     def test_nao_pode_deletar_cliente_com_certificado(self):
-        # raise_request_exception=False faz o client devolver 500 em vez de
-        # propagar ProtectedError — o importante e que NAO retorna 204.
-        self.client.raise_request_exception = False
         make_certificado(self.cliente)
         res = self.client.delete(f"/api/clientes/{self.cliente.pk}/")
-        self.assertEqual(res.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(res.status_code, status.HTTP_409_CONFLICT)
         self.assertTrue(Cliente.objects.filter(pk=self.cliente.pk).exists())
 
     def test_nao_pode_deletar_cliente_com_documento(self):
-        self.client.raise_request_exception = False
         make_documento(self.cliente)
         res = self.client.delete(f"/api/clientes/{self.cliente.pk}/")
-        self.assertEqual(res.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(res.status_code, status.HTTP_409_CONFLICT)
         self.assertTrue(Cliente.objects.filter(pk=self.cliente.pk).exists())
 
     def test_cascade_nsu_ao_deletar_cliente(self):
@@ -697,7 +693,7 @@ class ExportarLoteTest(APITestCase):
 class ValidacaoCompetenciaTest(APITestCase):
 
     def test_competencia_formato_invalido(self):
-        from .serializers import DocumentoSerializer
+        from fiscal.serializers import DocumentoSerializer
         s = DocumentoSerializer(data={
             "cliente": 1,
             "chave": "35240112345678000195550010000000011234567890",
@@ -712,7 +708,7 @@ class ValidacaoCompetenciaTest(APITestCase):
         self.assertIn("competencia", s.errors)
 
     def test_competencia_formato_correto_valido(self):
-        from .serializers import DocumentoSerializer
+        from fiscal.serializers import DocumentoSerializer
         s = DocumentoSerializer(data={
             "cliente": 1,
             "chave": "35240112345678000195550010000000011234567890",
@@ -727,7 +723,7 @@ class ValidacaoCompetenciaTest(APITestCase):
         self.assertNotIn("competencia", s.errors)
 
     def test_competencia_mes_13_invalido(self):
-        from .serializers import DocumentoSerializer
+        from fiscal.serializers import DocumentoSerializer
         s = DocumentoSerializer(data={
             "cliente": 1,
             "chave": "35240112345678000195550010000000011234567890",

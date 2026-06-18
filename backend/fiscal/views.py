@@ -60,18 +60,9 @@ class CertificadoViewSet(viewsets.ModelViewSet):
     """CRUD de certificados digitais e upload seguro para o cofre AES."""
     
     def get_serializer_class(self):
-        if self.action == 'create':
-            return CertificadoCreateSerializer
         if self.action == 'upload_certificado':
             return CertificadoUploadSerializer
         return CertificadoSerializer
-
-    def create(self, request, *args, **kwargs):
-        serializer = CertificadoCreateSerializer(data=request.data)
-        if serializer.is_valid():
-            cert = serializer.save()
-            return Response(CertificadoSerializer(cert).data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):

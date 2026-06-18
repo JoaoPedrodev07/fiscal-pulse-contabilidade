@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<retDistDFeInt versao="1.01" xmlns="http://www.portalfiscal.inf.br/nfe">
+    <tpAmb>2</tpAmb>
+    <verAplic>AN_1.0.0</verAplic>
+    <cStat>138</cStat>
+    <xMotivo>Documentos localizados</xMotivo>
+    <dhResp>2026-06-17T13:00:00-03:00</dhResp>
+    <ultNSU>000000000000150</ultNSU>
+    <maxNSU>000000000000200</maxNSU>
+    <loteDistDFeInt>
+        <docZip NSU="000000000000149" schema="resNFe_v1.01.xsd">H4sICAAAAAAAC2F0YWNoOQ...</docZip>
+        <docZip NSU="000000000000150" schema="resNFe_v1.01.xsd">H4sICAAAAAAAC2F0YWNoOQ...</docZip>
+    </loteDistDFeInt>
+</retDistDFeInt>

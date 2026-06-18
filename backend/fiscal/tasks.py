@@ -1,3 +1,6 @@
+"""
+Tarefas agendadas via Celery Beat para captura automática de documentos fiscais.
+"""
 import logging
 
 from celery import shared_task
@@ -13,7 +16,7 @@ from fiscal.services.cofre import decrypt_a1
 
 logger = logging.getLogger(__name__)
 
-_MAX_LOTES_POR_CLIENTE = 5  # teto de segurança por cliente/tipo para evitar loops
+_MAX_LOTES_POR_CLIENTE = 20  # Teto de segurança por cliente/tipo para evitar loops infinitos
 
 
 def _esgotar_fila(service, cliente, tipo_doc: str):
@@ -48,9 +51,7 @@ def _manifestar_pendentes(conector, cliente):
 
 def capturar_cliente(cliente) -> dict:
     """
-    Executa a captura completa para um único cliente.
-    Chamado tanto pela task periódica quanto pelo endpoint manual.
-    Retorna {'sucesso': bool, 'mensagem': str}.
+    Executa a captura completa para um único cliente de forma isolada e resiliente.
     """
     logger.info(f'Processando: {cliente.razao_social} ({cliente.cnpj})')
 
@@ -58,51 +59,60 @@ def capturar_cliente(cliente) -> dict:
     if not cert_db:
         msg = f'{cliente.razao_social}: sem certificado ativo.'
         logger.warning(msg)
+        LogCaptura.objects.create(cliente=cliente, tipo_documento='TODOS', sucesso=False, mensagem=msg)
         return {'sucesso': False, 'mensagem': msg}
 
     if not cert_db.senha_criptografada:
         msg = f'{cliente.razao_social}: senha do certificado ausente.'
         logger.error(msg)
+        LogCaptura.objects.create(cliente=cliente, tipo_documento='TODOS', sucesso=False, mensagem=msg)
         return {'sucesso': False, 'mensagem': msg}
-
-    sucesso = True
-    mensagem = ''
 
     try:
         senha = decrypt_a1(bytes(cert_db.senha_criptografada)).decode('utf-8')
-
+        import os
+        homologacao = os.environ.get('SEFAZ_HOMOLOGACAO', 'True') in ('True', 'true', '1')
         conector = inicializar_cliente_sefaz(
             cliente_obj=cliente,
             senha_certificado=senha,
-            homologacao=True,  # NUNCA False sem decisão explícita de ir a produção
+            homologacao=homologacao,
         )
-
-        nfe_service = NFeCapturaService(conector_sefaz=conector, cliente=cliente)
-        _esgotar_fila(nfe_service, cliente, 'NFE')
-
-        _manifestar_pendentes(conector, cliente)
-
-        cte_service = CTeCapturaService(conector_sefaz=conector, cliente=cliente)
-        _esgotar_fila(cte_service, cliente, 'CTE')
-
-        if cliente.uf.upper() in ('RJ',):
-            nfse_service = NFSeADNCapturaService(conector_sefaz=conector, cliente=cliente)
-            _esgotar_fila(nfse_service, cliente, 'NFSE')
-
-        mensagem = 'Captura concluída com sucesso.'
-
     except Exception as e:
-        sucesso = False
-        mensagem = str(e)
-        logger.error(f'Falha crítica em {cliente.razao_social}: {mensagem}')
+        msg = f"Falha ao inicializar chaves mTLS/Cofre: {str(e)}"
+        logger.error(msg)
+        LogCaptura.objects.create(cliente=cliente, tipo_documento='TODOS', sucesso=False, mensagem=msg)
+        return {'sucesso': False, 'mensagem': msg}
 
-    LogCaptura.objects.create(
-        cliente=cliente,
-        tipo_documento='NFE+CTE+NFSE',
-        sucesso=sucesso,
-        mensagem=mensagem,
-    )
-    return {'sucesso': sucesso, 'mensagem': mensagem}
+    # ── MOTOR 1: NF-e & Manifestação ────────────────────────────────────────
+    try:
+        nfe_service = NFeCapturaService(conector_sefaz=conector, cliente=cliente)
+        res_nfe = _esgotar_fila(nfe_service, cliente, 'NFE')
+        _manifestar_pendentes(conector, cliente)
+        LogCaptura.objects.create(cliente=cliente, tipo_documento='NFE', sucesso=True, mensagem=f"Status: {res_nfe}")
+    except Exception as e:
+        logger.error(f"Erro no motor NF-e de {cliente.razao_social}: {e}")
+        LogCaptura.objects.create(cliente=cliente, tipo_documento='NFE', sucesso=False, mensagem=str(e))
+
+    # ── MOTOR 2: CT-e ───────────────────────────────────────────────────────
+    try:
+        cte_service = CTeCapturaService(conector_sefaz=conector, cliente=cliente)
+        res_cte = _esgotar_fila(cte_service, cliente, 'CTE')
+        LogCaptura.objects.create(cliente=cliente, tipo_documento='CTE', sucesso=True, mensagem=f"Status: {res_cte}")
+    except Exception as e:
+        logger.error(f"Erro no motor CT-e de {cliente.razao_social}: {e}")
+        LogCaptura.objects.create(cliente=cliente, tipo_documento='CTE', sucesso=False, mensagem=str(e))
+
+    # ── MOTOR 3: NFS-e Nacional (REST ADN) ──────────────────────────────────
+    if cliente.uf.upper() in ('RJ',):
+        try:
+            nfse_service = NFSeADNCapturaService(conector_sefaz=conector, cliente=cliente)
+            res_nfse = _esgotar_fila(nfse_service, cliente, 'NFSE')
+            LogCaptura.objects.create(cliente=cliente, tipo_documento='NFSE', sucesso=True, mensagem=f"Status: {res_nfse}")
+        except Exception as e:
+            logger.warning(f"Erro controlado no motor NFS-e de {cliente.razao_social}: {e}")
+            LogCaptura.objects.create(cliente=cliente, tipo_documento='NFSE', sucesso=False, mensagem=f"Erro de Conexão/DNS ADN: {str(e)}")
+
+    return {'sucesso': True, 'mensagem': 'Rotinas de captura finalizadas de forma isolada.'}
 
 
 @shared_task(name='fiscal.tasks.executar_captura_nfe_todos_clientes')
