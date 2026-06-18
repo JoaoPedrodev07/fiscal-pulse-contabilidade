@@ -10,6 +10,7 @@ import {
   Plus,
   ShieldAlert,
   ShieldCheck,
+  Trash2,
   Upload,
   UserPlus,
 } from "lucide-react";
@@ -18,7 +19,17 @@ import { z } from "zod";
 
 import { AppShell } from "@/components/app-shell";
 import { useAuth } from "@/lib/auth";
-import { createCertificado, createCliente, listCertificados, listClientes } from "@/lib/api";
+import { createCertificado, createCliente, deleteCliente, listCertificados, listClientes } from "@/lib/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { Certificado, NovoClienteInput } from "@/lib/types";
 import { daysUntil, formatCnpj, formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -63,6 +74,7 @@ function CarteiraPage() {
   const { isStaff } = useAuth();
   const [openCliente, setOpenCliente] = useState(false);
   const [certTarget, setCertTarget] = useState<number | undefined>();
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; nome: string } | undefined>();
 
   const clientesQuery = useQuery({ queryKey: ["clientes"], queryFn: listClientes });
   const certsQuery = useQuery({ queryKey: ["certificados"], queryFn: listCertificados });
@@ -107,7 +119,7 @@ function CarteiraPage() {
                   <TableHead>Certificado A1</TableHead>
                   <TableHead>Validade do Cert.</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Certificado</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -167,14 +179,24 @@ function CarteiraPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setCertTarget(c.id)}
-                          >
-                            <Upload className="mr-1.5 h-4 w-4" />
-                            {cert ? "Atualizar" : "Enviar"}
-                          </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setCertTarget(c.id)}
+                            >
+                              <Upload className="mr-1.5 h-4 w-4" />
+                              {cert ? "Atualizar" : "Enviar"}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => setDeleteTarget({ id: c.id, nome: c.razao_social })}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -194,7 +216,65 @@ function CarteiraPage() {
         }}
         clienteId={certTarget}
       />
+      <ConfirmarExclusaoDialog
+        target={deleteTarget}
+        onOpenChange={(v) => { if (!v) setDeleteTarget(undefined); }}
+      />
     </AppShell>
+  );
+}
+
+// ---- Confirmar Exclusão ----
+
+function ConfirmarExclusaoDialog({
+  target,
+  onOpenChange,
+}: {
+  target: { id: number; nome: string } | undefined;
+  onOpenChange: (v: boolean) => void;
+}) {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: () => deleteCliente(target!.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["clientes"] });
+      queryClient.invalidateQueries({ queryKey: ["certificados"] });
+      toast.success(`Cliente "${target!.nome}" removido com sucesso`);
+      onOpenChange(false);
+    },
+    onError: (err: Error) =>
+      toast.error(err.message || "Não foi possível excluir. Verifique se há documentos vinculados."),
+  });
+
+  return (
+    <AlertDialog open={target !== undefined} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Excluir cliente?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Você tem certeza que deseja excluir{" "}
+            <span className="font-semibold text-foreground">{target?.nome}</span>? Esta ação não
+            pode ser desfeita. Clientes com documentos ou certificados vinculados não podem ser
+            excluídos.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={mutation.isPending}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            disabled={mutation.isPending}
+            onClick={(e) => {
+              e.preventDefault();
+              mutation.mutate();
+            }}
+          >
+            {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Excluir
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

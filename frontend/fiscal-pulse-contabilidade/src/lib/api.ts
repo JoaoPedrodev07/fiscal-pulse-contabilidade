@@ -171,6 +171,12 @@ export async function createCliente(input: NovoClienteInput): Promise<Cliente> {
   return http<Cliente>("/api/clientes/", { method: "POST", body: JSON.stringify(input) });
 }
 
+// DELETE /api/clientes/{id}/
+export async function deleteCliente(id: number): Promise<void> {
+  if (USE_MOCK) { await delay(); return; }
+  await http<void>(`/api/clientes/${id}/`, { method: "DELETE" });
+}
+
 // ----------------------------- CERTIFICADOS -----------------------------
 // GET /api/certificados/
 // GET /api/certificados/
