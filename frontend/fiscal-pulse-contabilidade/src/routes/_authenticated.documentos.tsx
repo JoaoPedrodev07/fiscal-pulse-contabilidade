@@ -71,6 +71,7 @@ function DocumentosPage() {
   const [competencia, setCompetencia] = useState<string>(ALL);
   const [tipo, setTipo] = useState<string>(ALL);
   const [status, setStatus] = useState<string>(ALL);
+  const [papelNfse, setPapelNfse] = useState<string>(ALL);
   const [inicio, setInicio] = useState<Date | undefined>();
   const [fim, setFim] = useState<Date | undefined>();
   const [page, setPage] = useState(1);
@@ -90,10 +91,11 @@ function DocumentosPage() {
       competencia: competencia !== ALL ? competencia : undefined,
       tipo_documento: tipo !== ALL ? tipo : undefined,
       status: status !== ALL ? status : undefined,
+      papel_nfse: papelNfse !== ALL ? papelNfse : undefined,
       data_emissao_inicio: inicio ? format(inicio, "yyyy-MM-dd") : undefined,
       data_emissao_fim: fim ? format(fim, "yyyy-MM-dd") : undefined,
     }),
-    [cliente, competencia, tipo, status, inicio, fim],
+    [cliente, competencia, tipo, status, papelNfse, inicio, fim],
   );
 
   const docsQuery = useQuery({
@@ -119,6 +121,7 @@ function DocumentosPage() {
     competencia !== ALL ||
     tipo !== ALL ||
     status !== ALL ||
+    papelNfse !== ALL ||
     !!inicio ||
     !!fim;
 
@@ -127,6 +130,7 @@ function DocumentosPage() {
     setCompetencia(ALL);
     setTipo(ALL);
     setStatus(ALL);
+    setPapelNfse(ALL);
     setInicio(undefined);
     setFim(undefined);
     setPage(1);
@@ -259,6 +263,19 @@ function DocumentosPage() {
                   <SelectItem value="MANIFESTADO">Manifestado</SelectItem>
                   <SelectItem value="COMPLETO">Completo</SelectItem>
                   <SelectItem value="CANCELADO">Cancelado</SelectItem>
+                </SelectContent>
+              </Select>
+            </FilterField>
+
+            <FilterField label="Papel NFS-e">
+              <Select value={papelNfse} onValueChange={resetPage(setPapelNfse)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>Todos</SelectItem>
+                  <SelectItem value="TOMADOR">Tomador (despesa)</SelectItem>
+                  <SelectItem value="EMITENTE">Emitente (receita)</SelectItem>
                 </SelectContent>
               </Select>
             </FilterField>

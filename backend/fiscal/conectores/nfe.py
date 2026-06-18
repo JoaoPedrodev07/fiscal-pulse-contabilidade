@@ -97,18 +97,24 @@ class NFeCapturaService:
                         continue
 
                     nsu_doc = doc_xml_node.attrib.get('NSU', '0')
+                    schema  = doc_xml_node.attrib.get('schema', '')
+
+                    # Eventos (cancelamento, etc.) — tratados separadamente
+                    if 'procEventoNFe' in schema:
+                        self._processar_evento(xml_puro, nsu_doc)
+                        continue
+
                     chave = f"3526061234567800019555001000000000000000{nsu_doc}"[-44:]
                     emitente = "EMITENTE TESTE"
                     valor = 0.0
                     status_doc = 'CAPTURADO'
-                    
+
                     try:
-                        # CORREÇÃO FASE 1: Garante tratamento estrito em bytes UTF-8 para evitar quebras por acentos
                         xml_puro_bytes = xml_puro.encode('utf-8') if isinstance(xml_puro, str) else xml_puro
                         nota_root = ET.fromstring(xml_puro_bytes)
-                        
+
                         ns_interno = nota_root.tag.split("}")[0] + "}" if "}" in nota_root.tag else ""
-                        
+
                         ch_element = nota_root.find(f".//{ns_interno}chNFe")
                         if ch_element is not None:
                             chave = ch_element.text
@@ -121,11 +127,11 @@ class NFeCapturaService:
                         emit_element = nota_root.find(f".//{ns_interno}emit/{ns_interno}xNome") or nota_root.find(f".//{ns_interno}xNome")
                         if emit_element is not None:
                             emitente = emit_element.text
-                        
+
                         val_element = nota_root.find(f".//{ns_interno}vNF")
                         if val_element is not None:
                             valor = float(val_element.text)
-                            
+
                         if "infNFe" in xml_puro:
                             status_doc = 'COMPLETO'
 
@@ -152,13 +158,11 @@ class NFeCapturaService:
                         if criado:
                             Xml.objects.create(documento=documento, conteudo=xml_puro)
                         else:
-                            # Documento já existia — garante que o XML está presente
                             try:
                                 documento.xml
                             except Documento.xml.RelatedObjectDoesNotExist:
                                 Xml.objects.create(documento=documento, conteudo=xml_puro)
 
-                        # resNFe recém-criado: manifesta imediatamente para obter procNFe
                         if criado and status_doc == 'CAPTURADO':
                             from fiscal.conectores.manifestacao import manifestar_documento
                             manifestar_documento(self.con, documento)
@@ -182,3 +186,32 @@ class NFeCapturaService:
         except ET.ParseError:
             logger.error("Erro Crítico: XML do lote corrompido.")
             return "XML_CORROMPIDO"
+
+    def _processar_evento(self, xml_puro: str, nsu_doc: str) -> None:
+        """
+        Processa um evento NF-e vindo do distNSU (schema procEventoNFe).
+        Atualmente trata apenas cancelamento (tpEvento=110111).
+        """
+        try:
+            root = ET.fromstring(xml_puro.encode('utf-8') if isinstance(xml_puro, str) else xml_puro)
+            ns = (root.tag.split('}')[0] + '}') if '{' in root.tag else ''
+
+            tp_el = root.find(f'.//{ns}tpEvento')
+            if tp_el is None or tp_el.text != '110111':
+                logger.debug('Evento NSU %s tipo %s ignorado (nao e cancelamento).', nsu_doc, tp_el.text if tp_el is not None else '?')
+                return
+
+            ch_el = root.find(f'.//{ns}chNFe')
+            if ch_el is None or not ch_el.text:
+                logger.warning('Evento de cancelamento NSU %s sem chNFe — ignorado.', nsu_doc)
+                return
+
+            chave = ch_el.text.strip()
+            atualizados = Documento.objects.filter(chave=chave).update(status='CANCELADO')
+            if atualizados:
+                logger.info('NF-e cancelada via evento distNSU: chave=%.10s... NSU=%s', chave, nsu_doc)
+            else:
+                logger.warning('Evento cancelamento NSU %s: NF-e chave=%.10s... nao encontrada no banco.', nsu_doc, chave)
+
+        except ET.ParseError as e:
+            logger.warning('Erro ao processar evento NSU %s: %s', nsu_doc, e)

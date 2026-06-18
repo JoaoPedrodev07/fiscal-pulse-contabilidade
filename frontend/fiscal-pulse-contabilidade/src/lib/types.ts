@@ -74,10 +74,22 @@ export interface DocumentoFilters {
   competencia?: string;
   tipo_documento?: string;
   status?: string;
+  papel_nfse?: string;
   data_emissao_inicio?: string;
   data_emissao_fim?: string;
   page?: number;
   page_size?: number;
+}
+
+export interface ReconciliacaoItem {
+  cliente: number;
+  cliente_nome: string;
+  tipo_documento: string;
+  ultimo_nsu: number;
+  max_nsu: number;
+  capturados: number;
+  gap: number;
+  atualizado_em: string;
 }
 
 export interface NovoClienteInput {

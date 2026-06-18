@@ -25,6 +25,7 @@ import type {
   NovoClienteInput,
   NovoCertificadoInput,
   Paginated,
+  ReconciliacaoItem,
   UserProfile,
 } from "./types";
 
@@ -302,7 +303,13 @@ export async function capturarNfseDireta(
 }
 
 // ----------------------------- DOCUMENTOS -----------------------------
-// GET /api/documentos/?cliente=..&competencia=..&tipo_documento=..&status=..&data_emissao_inicio=..&data_emissao_fim=..
+// GET /api/documentos/reconciliar/?cliente=<id>
+export async function reconciliar(clienteId?: number): Promise<ReconciliacaoItem[]> {
+  const params = clienteId ? `?cliente=${clienteId}` : '';
+  return http<ReconciliacaoItem[]>(`/api/documentos/reconciliar/${params}`);
+}
+
+// GET /api/documentos/?cliente=..&competencia=..&tipo_documento=..&status=..&papel_nfse=..&data_emissao_inicio=..&data_emissao_fim=..
 export async function listDocumentos(filters: DocumentoFilters): Promise<Paginated<Documento>> {
   if (USE_MOCK) {
     await delay();

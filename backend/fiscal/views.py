@@ -1,4 +1,5 @@
 import io
+import os
 import zipfile
 
 from django.db.models.deletion import ProtectedError
@@ -48,7 +49,7 @@ class ClienteViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='capturar', permission_classes=[IsAdminUser])
     def capturar(self, request, pk=None):
-        """POST /api/clientes/{id}/capturar/ — dispara captura NF-e + CT-e síncrona para um cliente."""
+        """POST /api/clientes/{id}/capturar/ — dispara captura NF-e + CT-e + NFS-e síncrona."""
         from fiscal.tasks import capturar_cliente
         cliente = self.get_object()
         resultado = capturar_cliente(cliente)
@@ -57,8 +58,11 @@ class ClienteViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='capturar-nfse', permission_classes=[IsAdminUser])
     def capturar_nfse_direta(self, request, pk=None):
-        """POST /api/clientes/{id}/capturar-nfse/ — captura NFS-e pela Chave de Acesso."""
-        import os
+        """
+        POST /api/clientes/{id}/capturar-nfse/
+        Fallback cirúrgico: busca NFS-e por Chave de Acesso (44 dígitos).
+        Dispara varredura NSU incremental no ADN e verifica se a chave apareceu.
+        """
         from fiscal.conectores.fabrica import inicializar_cliente_sefaz
         from fiscal.conectores.nfse import NFSeADNCapturaService
         from fiscal.services.cofre import decrypt_a1
@@ -96,11 +100,11 @@ class ClienteViewSet(viewsets.ModelViewSet):
             )
 
         _mensagens = {
-            'SUCESSO': 'NFS-e capturada e armazenada com sucesso.',
+            'SUCESSO':             'NFS-e capturada e armazenada com sucesso.',
             'NOTA_NAO_ENCONTRADA': 'NFS-e não encontrada para a chave informada.',
-            'ERRO_CONEXAO': 'Falha de conexão com a API ADN. Verifique a liberação de IP junto ao Serpro.',
-            'ERRO_HTTP': 'API ADN retornou erro HTTP.',
-            'XML_INVALIDO': 'XML retornado pela API ADN é inválido ou vazio.',
+            'ERRO_CONEXAO':        'Falha de conexão com a API ADN.',
+            'ERRO_HTTP':           'API ADN retornou erro HTTP.',
+            'XML_INVALIDO':        'XML retornado pela API ADN é inválido ou vazio.',
         }
         sucesso = resultado_str == 'SUCESSO'
         mensagem = _mensagens.get(resultado_str, resultado_str)
@@ -135,25 +139,18 @@ class CertificadoViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='upload', permission_classes=[IsAdminUser])
     def upload_certificado(self, request, pk=None):
-        """
-        POST /api/certificados/{id}/upload/
-        Recebe multipart/form-data com 'arquivo' (.pfx) e 'senha'.
-        Valida na memória RAM e persiste de forma criptografada no banco.
-        """
+        """POST /api/certificados/{id}/upload/ — substitui PFX criptografado."""
         certificado = self.get_object()
-        # Passa o serializer dinâmico usando o método apropriado do DRF
         serializer = self.get_serializer(certificado, data=request.data, partial=True)
-        
         if serializer.is_valid():
             serializer.save()
             return Response(
                 {
-                    "detail": "Certificado enviado, validado e armazenado com sucesso no cofre AES.",
-                    "validade": certificado.validade.strftime("%d/%m/%Y")
-                }, 
-                status=status.HTTP_200_OK
+                    'detail': 'Certificado enviado, validado e armazenado com sucesso no cofre AES.',
+                    'validade': certificado.validade.strftime('%d/%m/%Y'),
+                },
+                status=status.HTTP_200_OK,
             )
-            
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -178,6 +175,44 @@ class DocumentoViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         return Documento.objects.select_related('cliente').all()
+
+    @action(detail=False, methods=['get'], url_path='reconciliar')
+    def reconciliar(self, request):
+        """
+        GET /api/documentos/reconciliar/?cliente=<id>
+
+        Relatório de consistência: capturados vs. maxNSU disponível na SEFAZ/ADN.
+        Permite ao contador verificar gaps antes do fechamento fiscal.
+
+        Campos por tipo de documento:
+          - ultimo_nsu: ponteiro atual do banco
+          - max_nsu: total disponível na fonte
+          - capturados: documentos salvos
+          - gap: NSUs ainda não processados (max_nsu - ultimo_nsu)
+        """
+        cliente_id = request.query_params.get('cliente')
+        qs = ControleNSU.objects.select_related('cliente').all()
+        if cliente_id:
+            qs = qs.filter(cliente_id=cliente_id)
+
+        resultado = []
+        for c in qs:
+            capturados = Documento.objects.filter(
+                cliente=c.cliente,
+                tipo_documento=c.tipo_documento,
+            ).count()
+            resultado.append({
+                'cliente':        c.cliente_id,
+                'cliente_nome':   c.cliente.razao_social,
+                'tipo_documento': c.tipo_documento,
+                'ultimo_nsu':     c.ultimo_nsu,
+                'max_nsu':        c.max_nsu,
+                'capturados':     capturados,
+                'gap':            max(0, c.max_nsu - c.ultimo_nsu),
+                'atualizado_em':  c.atualizado_em,
+            })
+
+        return Response(resultado)
 
     @action(detail=False, methods=['get'], url_path='exportar_lote')
     def exportar_lote(self, request):
