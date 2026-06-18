@@ -120,8 +120,9 @@ function CapturaPage() {
           </AlertTitle>
           <AlertDescription className="text-muted-foreground">
             <p>
-              O Celery Beat executa NF-e + CT-e (NSU incremental) para todos os clientes a cada 4
-              horas. NFS-e é capturada sob demanda pela Chave de Acesso (ADN Nacional, NT 008/2026).
+              O Celery Beat executa <strong className="text-foreground">NF-e + CT-e + NFS-e</strong> (NSU
+              incremental) para todos os clientes ativos a cada 4 horas. A busca por Chave de Acesso
+              abaixo é um fallback cirúrgico para notas específicas.
             </p>
             <ul className="mt-2 space-y-1.5 text-xs">
               <li className="flex items-start gap-1.5">
@@ -142,10 +143,10 @@ function CapturaPage() {
           </AlertDescription>
         </Alert>
 
-        {/* Tabela NF-e / CT-e */}
+        {/* Tabela NF-e / CT-e / NFS-e */}
         <Card>
           <CardHeader className="pb-0">
-            <CardTitle className="text-base">NF-e / CT-e — Status por cliente</CardTitle>
+            <CardTitle className="text-base">NF-e / CT-e / NFS-e — Status por cliente</CardTitle>
           </CardHeader>
           <div className="overflow-x-auto">
             <Table>
@@ -155,6 +156,7 @@ function CapturaPage() {
                   <TableHead>CNPJ</TableHead>
                   <TableHead className="text-center">NSU NF-e</TableHead>
                   <TableHead className="text-center">NSU CT-e</TableHead>
+                  <TableHead className="text-center">NSU NFS-e</TableHead>
                   <TableHead>Última captura</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Ação</TableHead>
@@ -164,14 +166,14 @@ function CapturaPage() {
                 {loading ? (
                   Array.from({ length: 4 }).map((_, i) => (
                     <TableRow key={i}>
-                      <TableCell colSpan={7}>
+                      <TableCell colSpan={8}>
                         <Skeleton className="h-6 w-full" />
                       </TableCell>
                     </TableRow>
                   ))
                 ) : clientes.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-12 text-center text-sm text-muted-foreground">
+                    <TableCell colSpan={8} className="py-12 text-center text-sm text-muted-foreground">
                       Nenhum cliente cadastrado.
                     </TableCell>
                   </TableRow>
@@ -190,6 +192,9 @@ function CapturaPage() {
                         </TableCell>
                         <TableCell className="text-center">
                           <NsuCell nsu={nsuCliente?.get("CTE")} />
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <NsuCell nsu={nsuCliente?.get("NFSE")} />
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                           {lastLog ? formatDateTime(lastLog.executado_em) : "—"}
@@ -221,7 +226,7 @@ function CapturaPage() {
           </div>
         </Card>
 
-        {/* Painel NFS-e sob demanda */}
+        {/* Painel NFS-e — fallback cirúrgico */}
         <NfsePanel clientes={clientes} onSettled={invalidarDados} />
 
         {/* Painel de Reconciliação NSU */}
@@ -360,9 +365,11 @@ function NfsePanel({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">NFS-e — Captura por Chave de Acesso</CardTitle>
+        <CardTitle className="text-base">NFS-e — Busca cirúrgica por Chave de Acesso</CardTitle>
         <p className="text-xs text-muted-foreground">
-          API ADN Nacional (NT 008/2026). Requer liberação de IP dedicado junto ao Serpro.
+          <strong className="text-foreground">A captura automática já cobre NFS-e a cada 4h.</strong>{" "}
+          Use este formulário apenas se uma nota específica não aparecer após o ciclo automático.
+          Não é necessário informar senha — o certificado do cliente é usado automaticamente do cofre.
         </p>
       </CardHeader>
       <CardContent>
