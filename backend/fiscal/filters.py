@@ -14,4 +14,5 @@ class DocumentoFilter(django_filters.FilterSet):
             'competencia':    ['exact'],
             'tipo_documento': ['exact'],
             'status':         ['exact'],
+            'papel_nfse':     ['exact'],
         }

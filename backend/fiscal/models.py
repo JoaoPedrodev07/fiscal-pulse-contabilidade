@@ -12,6 +12,7 @@ class StatusDocumento(models.TextChoices):
     CAPTURADO   = 'CAPTURADO',   'Capturado'
     MANIFESTADO = 'MANIFESTADO', 'Manifestado'
     COMPLETO    = 'COMPLETO',    'Completo'
+    CANCELADO   = 'CANCELADO',   'Cancelado'
 
 
 class Cliente(models.Model):
@@ -129,6 +130,14 @@ class Documento(models.Model):
         choices=StatusDocumento.choices,
         default=StatusDocumento.CAPTURADO,
         verbose_name='Status',
+    )
+    papel_nfse = models.CharField(
+        max_length=10,
+        blank=True,
+        default='',
+        db_index=True,
+        verbose_name='Papel NFS-e',
+        help_text='EMITENTE (receita) ou TOMADOR (despesa). Preenchido apenas para NFS-e.',
     )
     metadados = models.JSONField(default=dict, blank=True, verbose_name='Metadados')
     criado_em = models.DateTimeField(auto_now_add=True)

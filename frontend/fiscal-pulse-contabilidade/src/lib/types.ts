@@ -1,5 +1,5 @@
 export type TipoDocumento = "NFE" | "CTE" | "NFSE" | "NFCE";
-export type StatusDocumento = "CAPTURADO" | "MANIFESTADO" | "COMPLETO";
+export type StatusDocumento = "CAPTURADO" | "MANIFESTADO" | "COMPLETO" | "CANCELADO";
 
 export interface UserProfile {
   id: number;
@@ -48,6 +48,8 @@ export interface Documento {
   data_emissao: string; // YYYY-MM-DD
   competencia: string; // YYYY-MM
   status: StatusDocumento;
+  /** "EMITENTE" (receita) | "TOMADOR" (despesa) | "" — preenchido apenas para NFS-e */
+  papel_nfse: string;
 }
 
 export interface LogCaptura {

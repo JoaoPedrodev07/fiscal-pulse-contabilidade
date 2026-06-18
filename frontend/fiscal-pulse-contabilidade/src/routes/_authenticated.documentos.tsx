@@ -258,6 +258,7 @@ function DocumentosPage() {
                   <SelectItem value="CAPTURADO">Capturado</SelectItem>
                   <SelectItem value="MANIFESTADO">Manifestado</SelectItem>
                   <SelectItem value="COMPLETO">Completo</SelectItem>
+                  <SelectItem value="CANCELADO">Cancelado</SelectItem>
                 </SelectContent>
               </Select>
             </FilterField>

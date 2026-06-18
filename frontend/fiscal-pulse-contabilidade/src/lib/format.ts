@@ -51,14 +51,15 @@ export const TIPO_LABEL: Record<TipoDocumento, string> = {
 };
 
 export const STATUS_LABEL: Record<StatusDocumento, string> = {
-  CAPTURADO: "Capturado",
+  CAPTURADO:   "Capturado",
   MANIFESTADO: "Manifestado",
-  COMPLETO: "Completo",
+  COMPLETO:    "Completo",
+  CANCELADO:   "Cancelado",
 };
 
 export function statusBadgeVariant(
   status: StatusDocumento,
-): "warning" | "info" | "success" {
+): "warning" | "info" | "success" | "destructive" {
   switch (status) {
     case "CAPTURADO":
       return "warning";
@@ -66,6 +67,8 @@ export function statusBadgeVariant(
       return "info";
     case "COMPLETO":
       return "success";
+    case "CANCELADO":
+      return "destructive";
   }
 }
 

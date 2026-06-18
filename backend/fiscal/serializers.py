@@ -150,7 +150,7 @@ class DocumentoSerializer(serializers.ModelSerializer):
             'id', 'cliente', 'cliente_nome',
             'chave', 'tipo_documento', 'emitente',
             'valor', 'data_emissao', 'competencia',
-            'status', 'metadados', 'criado_em',
+            'status', 'papel_nfse', 'metadados', 'criado_em',
         ]
         read_only_fields = ['id', 'criado_em']
 
