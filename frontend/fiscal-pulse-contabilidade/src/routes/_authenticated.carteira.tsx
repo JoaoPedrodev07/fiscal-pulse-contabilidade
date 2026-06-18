@@ -1,9 +1,7 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
 import {
-  CalendarClock,
   Eye,
   EyeOff,
   FileKey,
@@ -45,8 +43,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/carteira")({
@@ -327,10 +323,9 @@ function UploadCertDialog({
 }) {
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [fileName, setFileName] = useState("");
+  const [arquivo, setArquivo] = useState<File | null>(null);
   const [senha, setSenha] = useState("");
   const [showSenha, setShowSenha] = useState(false);
-  const [validade, setValidade] = useState<Date | undefined>();
 
   const mutation = useMutation({
     mutationFn: createCertificado,
@@ -344,24 +339,18 @@ function UploadCertDialog({
   });
 
   function reset() {
-    setFileName("");
+    setArquivo(null);
     setSenha("");
     setShowSenha(false);
-    setValidade(undefined);
+    if (fileRef.current) fileRef.current.value = "";
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!fileName) return toast.error("Selecione o arquivo .pfx");
+    if (!arquivo) return toast.error("Selecione o arquivo .pfx");
     if (!senha) return toast.error("Informe a senha do certificado");
     if (!clienteId) return toast.error("Cliente não identificado");
-    if (!validade) return toast.error("Informe a data de validade");
-    mutation.mutate({
-      cliente: clienteId,
-      nome_arquivo: fileName,
-      senha,
-      validade: format(validade, "yyyy-MM-dd"),
-    });
+    mutation.mutate({ cliente: clienteId, arquivo, senha });
   }
 
   return (
@@ -386,7 +375,7 @@ function UploadCertDialog({
               type="file"
               accept=".pfx,.p12"
               className="hidden"
-              onChange={(e) => setFileName(e.target.files?.[0]?.name ?? "")}
+              onChange={(e) => setArquivo(e.target.files?.[0] ?? null)}
             />
             <button
               type="button"
@@ -394,8 +383,8 @@ function UploadCertDialog({
               className="flex w-full items-center gap-3 rounded-lg border border-dashed bg-muted/30 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/50"
             >
               <FileKey className="h-5 w-5 shrink-0 text-muted-foreground" />
-              <span className={cn("truncate", !fileName && "text-muted-foreground")}>
-                {fileName || "Clique para selecionar o arquivo .pfx"}
+              <span className={cn("truncate", !arquivo && "text-muted-foreground")}>
+                {arquivo?.name || "Clique para selecionar o arquivo .pfx"}
               </span>
             </button>
           </div>
@@ -420,34 +409,6 @@ function UploadCertDialog({
                 {showSenha ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Data de validade</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={cn(
-                    "w-full justify-start text-left font-normal",
-                    !validade && "text-muted-foreground",
-                  )}
-                >
-                  <CalendarClock className="mr-2 h-4 w-4" />
-                  {validade ? format(validade, "dd/MM/yyyy") : "Selecionar data"}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={validade}
-                  onSelect={setValidade}
-                  initialFocus
-                  className={cn("p-3 pointer-events-auto")}
-                />
-              </PopoverContent>
-            </Popover>
           </div>
 
           <div className="flex items-start gap-2 rounded-lg border border-accent/30 bg-accent/5 p-3 text-xs text-muted-foreground">

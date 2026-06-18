@@ -86,7 +86,6 @@ export interface NovoClienteInput {
 
 export interface NovoCertificadoInput {
   cliente: number;
-  nome_arquivo: string;
-  validade: string;
-  senha?: string;
+  arquivo: File;
+  senha: string;
 }

@@ -192,23 +192,42 @@ export async function listCertificados(): Promise<Certificado[]> {
     : (data as unknown as Certificado[]);
 }
 
-// POST /api/certificados/
+// POST /api/certificados/  (multipart/form-data)
 export async function createCertificado(input: NovoCertificadoInput): Promise<Certificado> {
   if (USE_MOCK) {
     await delay(600);
-    const cliente = users.find((u) => u.id === input.cliente);
     const novo: Certificado = {
       id: Math.max(0, ...certificados.map((c) => c.id)) + 1,
       cliente: input.cliente,
       cliente_nome: `Cliente #${input.cliente}`,
-      nome_arquivo: input.nome_arquivo,
-      validade: input.validade,
+      nome_arquivo: input.arquivo.name,
+      validade: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
       ativo: true,
     };
     certificados = [novo, ...certificados.filter((c) => c.cliente !== input.cliente)];
     return novo;
   }
-  return http<Certificado>("/api/certificados/", { method: "POST", body: JSON.stringify(input) });
+  // Não setar Content-Type — o browser insere o boundary do multipart automaticamente
+  const form = new FormData();
+  form.append("cliente", String(input.cliente));
+  form.append("arquivo", input.arquivo);
+  form.append("senha", input.senha);
+  const res = await fetch(`${API_BASE_URL}/api/certificados/`, {
+    method: "POST",
+    headers: { ...authHeaders() },
+    body: form,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const msg =
+      body.detail ||
+      body.arquivo?.[0] ||
+      body.senha?.[0] ||
+      body.non_field_errors?.[0] ||
+      `Erro ${res.status}`;
+    throw new Error(msg);
+  }
+  return res.json();
 }
 
 // ----------------------------- NSU -----------------------------

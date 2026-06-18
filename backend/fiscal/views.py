@@ -10,14 +10,17 @@ from rest_framework.filters import SearchFilter
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django_filters.rest_framework import DjangoFilterBackend
 
-from .models import Cliente, Certificado, ControleNSU, Documento, LogCaptura
+from .models import Cliente, Certificado, ControleNSU, Documento, LogCaptura, Manifestacao
 from .serializers import (
     ClienteSerializer,
     CertificadoSerializer,
+    CertificadoCreateSerializer,
+    CertificadoUploadSerializer,
     ControleNSUSerializer,
     DocumentoSerializer,
     DocumentoDetalheSerializer,
     LogCapturaSerializer,
+    ManifestacaoSerializer,
 )
 from .filters import DocumentoFilter
 
@@ -45,8 +48,21 @@ class ClienteViewSet(viewsets.ModelViewSet):
 
 
 class CertificadoViewSet(viewsets.ModelViewSet):
-    """CRUD de certificados digitais (apenas metadados — o A1 nunca trafega)."""
-    serializer_class = CertificadoSerializer
+    """CRUD de certificados digitais e upload seguro para o cofre AES."""
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return CertificadoCreateSerializer
+        if self.action == 'upload_certificado':
+            return CertificadoUploadSerializer
+        return CertificadoSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = CertificadoCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            cert = serializer.save()
+            return Response(CertificadoSerializer(cert).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):
@@ -55,6 +71,29 @@ class CertificadoViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return Certificado.objects.select_related('cliente').all()
+
+    @action(detail=True, methods=['post'], url_path='upload', permission_classes=[IsAdminUser])
+    def upload_certificado(self, request, pk=None):
+        """
+        POST /api/certificados/{id}/upload/
+        Recebe multipart/form-data com 'arquivo' (.pfx) e 'senha'.
+        Valida na memória RAM e persiste de forma criptografada no banco.
+        """
+        certificado = self.get_object()
+        # Passa o serializer dinâmico usando o método apropriado do DRF
+        serializer = self.get_serializer(certificado, data=request.data, partial=True)
+        
+        if serializer.is_valid():
+            serializer.save()
+            return Response(
+                {
+                    "detail": "Certificado enviado, validado e armazenado com sucesso no cofre AES.",
+                    "validade": certificado.validade.strftime("%d/%m/%Y")
+                }, 
+                status=status.HTTP_200_OK
+            )
+            
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class ControleNSUViewSet(viewsets.ReadOnlyModelViewSet):
@@ -131,3 +170,14 @@ class LogCapturaViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         return LogCaptura.objects.select_related('cliente').all()
+
+
+class ManifestacaoViewSet(viewsets.ReadOnlyModelViewSet):
+    """GET /api/manifestacoes/ — histórico de manifestações por documento."""
+    serializer_class = ManifestacaoSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Manifestacao.objects.select_related(
+            'documento', 'documento__cliente'
+        ).all()
