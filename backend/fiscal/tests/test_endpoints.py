@@ -400,11 +400,42 @@ class CertificadoEndpointTest(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_criar_staff(self):
-        self.client.force_authenticate(user=self.staff)
-        res = self.client.post(
-            "/api/certificados/",
-            {"cliente": self.cliente.pk, "nome_arquivo": "novo.pfx", "validade": "2027-12-31"},
+        import datetime as dt
+        import os
+        from unittest.mock import patch
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives.serialization import pkcs12 as pkcs12_mod
+        from cryptography.fernet import Fernet
+
+        senha = b"teste123"
+        priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        nome = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Test")])
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(nome)
+            .issuer_name(nome)
+            .public_key(priv.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(dt.datetime.now(dt.timezone.utc))
+            .not_valid_after(dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=365))
+            .sign(priv, hashes.SHA256())
         )
+        pfx_bytes = pkcs12_mod.serialize_key_and_certificates(
+            name=b"test", key=priv, cert=cert, cas=None,
+            encryption_algorithm=serialization.BestAvailableEncryption(senha),
+        )
+
+        test_key = Fernet.generate_key().decode()
+        self.client.force_authenticate(user=self.staff)
+        with patch.dict(os.environ, {"CERT_ENCRYPTION_KEY": test_key}):
+            res = self.client.post(
+                "/api/certificados/",
+                {"cliente": self.cliente.pk, "arquivo": io.BytesIO(pfx_bytes), "senha": senha.decode()},
+                format="multipart",
+            )
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
 
     def test_criar_operador_proibido(self):

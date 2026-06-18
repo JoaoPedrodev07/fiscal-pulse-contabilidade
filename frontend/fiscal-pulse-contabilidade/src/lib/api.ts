@@ -278,6 +278,23 @@ export async function executarCaptura(clienteId: number): Promise<{ sucesso: boo
   return body as { sucesso: boolean; mensagem: string };
 }
 
+// POST /api/clientes/{id}/capturar-nfse/
+export async function capturarNfseDireta(
+  clienteId: number,
+  chaveAcesso: string
+): Promise<{ sucesso: boolean; mensagem: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/clientes/${clienteId}/capturar-nfse/`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ chave_acesso: chaveAcesso }),
+  });
+  const body = await res.json().catch(() => ({ sucesso: false, mensagem: `Erro ${res.status}` }));
+  if (!res.ok && res.status !== 502) {
+    throw new Error(body.detail || `Erro ${res.status}`);
+  }
+  return body as { sucesso: boolean; mensagem: string };
+}
+
 // ----------------------------- DOCUMENTOS -----------------------------
 // GET /api/documentos/?cliente=..&competencia=..&tipo_documento=..&status=..&data_emissao_inicio=..&data_emissao_fim=..
 export async function listDocumentos(filters: DocumentoFilters): Promise<Paginated<Documento>> {

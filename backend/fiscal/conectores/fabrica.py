@@ -16,7 +16,6 @@ from fiscal.services.cofre import decrypt_a1
 
 logger = logging.getLogger(__name__)
 
-# Código IBGE de cada UF — exigido pelo campo cUF da SEFAZ
 _UF_CODIGO = {
     'ac': 12, 'al': 27, 'ap': 16, 'am': 13, 'ba': 29, 'ce': 23,
     'df': 53, 'es': 32, 'go': 52, 'ma': 21, 'mt': 51, 'ms': 50,
@@ -27,28 +26,18 @@ _UF_CODIGO = {
 
 
 def _normalizar_resposta_pynfe(xml_resposta) -> str:
-    """
-    PyNFe pode retornar bytes, str, um objeto Response do requests ou lxml.etree.
-    Normaliza tudo extraindo o XML bruto em formato str UTF-8.
-    """
-    # 1. Se receber o objeto Response do requests ou similar, extrai o texto interno primeiro
     if hasattr(xml_resposta, 'text'):
         xml_resposta = xml_resposta.text
-
     if isinstance(xml_resposta, bytes):
         return xml_resposta.decode('utf-8', errors='ignore')
-        
     if isinstance(xml_resposta, str):
         return xml_resposta
-
-    # 2. Fallback para lxml Element
     try:
         from lxml import etree
         if isinstance(xml_resposta, etree._Element):
             return etree.tostring(xml_resposta, encoding='unicode')
     except Exception:
         pass
-
     return str(xml_resposta)
 
 
@@ -91,8 +80,6 @@ class ConectorSefaz:
             os.write(fd, self._pfx_bytes)
             os.close(fd)
             com = self._comunicacao(tmp_path)
-            
-            # Aqui chamamos o método real da biblioteca (ex: consulta_notas_cnpj)
             resultado = getattr(com, metodo_nome)(**kwargs)
             return _RespostaAdapter(_normalizar_resposta_pynfe(resultado))
         finally:
@@ -101,14 +88,15 @@ class ConectorSefaz:
             except OSError:
                 pass
 
-# ── NF-e ────────────────────────────────────────────────────────────────
+    # ── NF-e ────────────────────────────────────────────────────────────────
 
     def consulta_notas_cnpj(self, cnpj: str, nsu: int) -> _RespostaAdapter:
         """distNSU — varredura incremental de NF-e por CNPJ a partir do NSU."""
         return self._run(
-            'consulta_distribuicao',  
-            cnpj=cnpj,
-            nsu=int(nsu),
+            'consulta_distribuicao',
+            cUF=self._codigo_uf,
+            CNPJ=cnpj,
+            ultNSU=str(nsu).zfill(15),
         )
 
     # ── CT-e ────────────────────────────────────────────────────────────────
@@ -116,65 +104,50 @@ class ConectorSefaz:
     def consulta_ctes_cnpj(self, cnpj: str, nsu: int) -> _RespostaAdapter:
         """distNSU — varredura incremental de CT-e por CNPJ a partir do NSU."""
         return self._run(
-            'consulta_distribuicao',  
-            cnpj=cnpj,
-            nsu=int(nsu),
+            'consulta_distribuicao',
+            cUF=self._codigo_uf,
+            CNPJ=cnpj,
+            ultNSU=str(nsu).zfill(15),
         )
-        
-        
-        
-        
-# ── NFS-e REST ADN ──────────────────────────────────────────────────────
 
-# ── NFS-e REST ADN ──────────────────────────────────────────────────────
+    # ── NFS-e REST ADN ───────────────────────────────────────────────────────
 
-    def consulta_nfse_nsu(self, nsu: int) -> _RespostaAdapter:
+    def enviar_requisicao_rest_mtls(self, url: str, metodo: str = 'GET') -> object:
         """
-        Consome a API REST do ADN (Ambiente de Dados Nacional) da NFS-e.
-        Usa cryptography para extrair a chave e o certificado em RAM e injetar no requests.
+        Executa uma requisição REST com mTLS usando o PFX em memória.
+        Extrai cert + chave em PEM on-the-fly via `cryptography`.
+        Dois arquivos temporários deletados no bloco finally (< 1 ms em disco).
         """
         import requests
-        from cryptography.hazmat.primitives.serialization import pkcs12
-        from cryptography.hazmat.primitives import serialization
-        import tempfile
-        import os
-        
-        url = f"https://adnapi.nfse.gov.br/DFe/{nsu}"
-        
-        # 1. Desempacota o PFX em memória usando a senha
-        private_key, certificate, additional_certs = pkcs12.load_key_and_certificates(
-            self._pfx_bytes,
-            self._senha.encode('utf-8') if isinstance(self._senha, str) else self._senha
+        from cryptography.hazmat.primitives.serialization import (
+            Encoding, NoEncryption, PrivateFormat,
         )
-        
-        # 2. Converte a chave e o certificado para o formato PEM em bytes
-        cert_pem = certificate.public_bytes(serialization.Encoding.PEM)
-        key_pem = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption()
-        )
-        
-        # 3. O requests exige arquivos em disco para o parâmetro 'cert'. 
-        # Vamos criar um arquivo PEM temporário único contendo [Chave + Certificado]
-        fd, tmp_path = tempfile.mkstemp(suffix='.pem')
+        from cryptography.hazmat.primitives.serialization.pkcs12 import load_key_and_certificates
+
+        senha_bytes = self._senha.encode('utf-8') if isinstance(self._senha, str) else self._senha
+        private_key, certificate, _ = load_key_and_certificates(self._pfx_bytes, senha_bytes)
+
+        if not private_key or not certificate:
+            raise ValueError('PFX não contém chave privada ou certificado válido.')
+
+        cert_pem = certificate.public_bytes(Encoding.PEM)
+        key_pem = private_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
+
+        fd_cert, cert_path = tempfile.mkstemp(suffix='.pem')
+        fd_key, key_path = tempfile.mkstemp(suffix='.pem')
         try:
-            os.write(fd, cert_pem + b"\n" + key_pem)
-            os.close(fd)
-            
-            session = requests.Session()
-            session.verify = False  # Desativa avisos de cadeias locais do governo
-            
-            # Passa o arquivo temporário contendo o par mTLS
-            response = session.get(url, cert=tmp_path, timeout=15)
-            
-            return _RespostaAdapter(_normalizar_resposta_pynfe(response))
-            
+            os.write(fd_cert, cert_pem)
+            os.close(fd_cert)
+            os.write(fd_key, key_pem)
+            os.close(fd_key)
+            return requests.request(metodo, url, cert=(cert_path, key_path), timeout=30)
         finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+            for path in (cert_path, key_path):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+
     # ── Manifestação ────────────────────────────────────────────────────────
 
     def enviar_manifestacao(self, cnpj: str, chave_nfe: str, tipo_evento: str = '210210') -> _RespostaAdapter:
@@ -197,7 +170,7 @@ def inicializar_cliente_sefaz(cliente_obj, senha_certificado: str, homologacao: 
     """
     cert_db = CertificadoModel.objects.filter(cliente=cliente_obj, ativo=True).first()
     if not cert_db or not cert_db.conteudo_criptografado:
-        raise ValueError(f"Nenhum certificado ativo encontrado para {cliente_obj.razao_social}")
+        raise ValueError(f'Nenhum certificado ativo encontrado para {cliente_obj.razao_social}')
 
     pfx_bytes = decrypt_a1(bytes(cert_db.conteudo_criptografado))
 

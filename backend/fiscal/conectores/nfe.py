@@ -157,7 +157,12 @@ class NFeCapturaService:
                                 documento.xml
                             except Documento.xml.RelatedObjectDoesNotExist:
                                 Xml.objects.create(documento=documento, conteudo=xml_puro)
-                            
+
+                        # resNFe recém-criado: manifesta imediatamente para obter procNFe
+                        if criado and status_doc == 'CAPTURADO':
+                            from fiscal.conectores.manifestacao import manifestar_documento
+                            manifestar_documento(self.con, documento)
+
                     except Exception as e:
                         logger.error(f"Erro ao persistir Documento no ORM: {str(e)}")
                         continue

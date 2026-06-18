@@ -48,21 +48,82 @@ class ClienteViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='capturar', permission_classes=[IsAdminUser])
     def capturar(self, request, pk=None):
-        """POST /api/clientes/{id}/capturar/ — dispara captura SEFAZ síncrona para um cliente."""
+        """POST /api/clientes/{id}/capturar/ — dispara captura NF-e + CT-e síncrona para um cliente."""
         from fiscal.tasks import capturar_cliente
         cliente = self.get_object()
         resultado = capturar_cliente(cliente)
         http_status = status.HTTP_200_OK if resultado['sucesso'] else status.HTTP_502_BAD_GATEWAY
         return Response(resultado, status=http_status)
 
+    @action(detail=True, methods=['post'], url_path='capturar-nfse', permission_classes=[IsAdminUser])
+    def capturar_nfse_direta(self, request, pk=None):
+        """POST /api/clientes/{id}/capturar-nfse/ — captura NFS-e pela Chave de Acesso."""
+        import os
+        from fiscal.conectores.fabrica import inicializar_cliente_sefaz
+        from fiscal.conectores.nfse import NFSeADNCapturaService
+        from fiscal.services.cofre import decrypt_a1
+
+        cliente = self.get_object()
+        chave = request.data.get('chave_acesso', '').strip()
+
+        if len(chave) != 44:
+            return Response(
+                {'detail': 'Chave de acesso deve ter exatamente 44 dígitos.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        cert_db = cliente.certificados.filter(ativo=True).first()
+        if not cert_db or not cert_db.conteudo_criptografado or not cert_db.senha_criptografada:
+            return Response(
+                {'detail': 'Cliente sem certificado ativo configurado.'},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        try:
+            senha = decrypt_a1(bytes(cert_db.senha_criptografada)).decode('utf-8')
+            homologacao = os.environ.get('SEFAZ_HOMOLOGACAO', 'True') != 'False'
+            conector = inicializar_cliente_sefaz(
+                cliente_obj=cliente,
+                senha_certificado=senha,
+                homologacao=homologacao,
+            )
+            nfse_service = NFSeADNCapturaService(conector_sefaz=conector, cliente=cliente)
+            resultado_str = nfse_service.capturar_por_chave_direta(chave)
+        except Exception as e:
+            return Response(
+                {'sucesso': False, 'mensagem': str(e)},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        _mensagens = {
+            'SUCESSO': 'NFS-e capturada e armazenada com sucesso.',
+            'NOTA_NAO_ENCONTRADA': 'NFS-e não encontrada para a chave informada.',
+            'ERRO_CONEXAO': 'Falha de conexão com a API ADN. Verifique a liberação de IP junto ao Serpro.',
+            'ERRO_HTTP': 'API ADN retornou erro HTTP.',
+            'XML_INVALIDO': 'XML retornado pela API ADN é inválido ou vazio.',
+        }
+        sucesso = resultado_str == 'SUCESSO'
+        mensagem = _mensagens.get(resultado_str, resultado_str)
+        http_status = status.HTTP_200_OK if sucesso else status.HTTP_502_BAD_GATEWAY
+        return Response({'sucesso': sucesso, 'mensagem': mensagem}, status=http_status)
+
 
 class CertificadoViewSet(viewsets.ModelViewSet):
     """CRUD de certificados digitais e upload seguro para o cofre AES."""
-    
+
     def get_serializer_class(self):
+        if self.action == 'create':
+            return CertificadoCreateSerializer
         if self.action == 'upload_certificado':
             return CertificadoUploadSerializer
         return CertificadoSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = CertificadoCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            cert = serializer.save()
+            return Response(CertificadoSerializer(cert).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):

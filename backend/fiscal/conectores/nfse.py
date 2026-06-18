@@ -1,48 +1,40 @@
 """
 Serviço de captura NFS-e Nacional — API ADN (REST + mTLS).
 
-Endpoint base: https://adnapi.nfse.gov.br
-Métodos relevantes:
-  GET /DFe/{NSU}       — busca documento por NSU
-  GET /NFSe/{chave}    — busca por chave
+Domínios Oficiais (NT 008/2026):
+  Homologação: https://adn.producaorestrita.nfse.gov.br/contribuintes
+  Produção:    https://adn.nfse.gov.br/contribuintes
 
-Resposta: JSON com campo 'xmlNfse' em GZip+Base64 ou campo 'nfse' com XML.
-Cobertura atual: Rio de Janeiro + Niterói (padrão nacional desde 01/jan/2026).
-
-ATENÇÃO: O ADN usa ambiente de PRODUÇÃO RESTRITA para testes —
-não há sandbox separado. Use sempre CNPJ e certificado de homologação válidos.
+Métodos documentados para Contribuintes:
+  GET /nfse/{chaveAcesso}   — Busca nota pela Chave de Acesso (Item 1.3.2)
+  GET /dps/{id}             — Recupera chave a partir do ID da DPS (Item 1.4.2)
 """
 import base64
 import gzip
 import json
 import logging
+import os
 import xml.etree.ElementTree as ET
 
 from django.utils import timezone
-
 from fiscal.models import ControleNSU, Documento, Xml
 
 logger = logging.getLogger(__name__)
 
-_ADN_BASE_URL = 'https://api.nfse.gov.br/v1/adn'
+_ADN_BASE_URL_HOMOLOG = 'https://adn.producaorestrita.nfse.gov.br/contribuintes'
+_ADN_BASE_URL_PROD = 'https://adn.nfse.gov.br/contribuintes'
 
 
 class NFSeADNCapturaService:
     """
     Captura NFS-e via API REST do ADN Nacional.
-
-    O conector_sefaz aqui é usado apenas para obter a sessão mTLS —
-    não é a mesma instância usada para NF-e/CT-e SOAP.
-    Para NFS-e o ConectorSefaz ainda não expõe método REST nativo;
-    este serviço monta a sessão requests diretamente via ConectorSefaz._run
-    adaptado para REST (implementar quando PyNFe expor REST ADN).
-
-    Status atual: estrutura pronta, validar API ADN em homologação.
+    Adaptado para conformidade com o Manual do Contribuinte (NT 008/2026).
     """
 
     def __init__(self, conector_sefaz, cliente):
         self.con = conector_sefaz
         self.cliente = cliente
+        self.homologacao = os.environ.get('SEFAZ_HOMOLOGACAO', 'True') != 'False'
 
     def _descompactar(self, conteudo_b64: str) -> str | None:
         if not conteudo_b64:
@@ -67,7 +59,7 @@ class NFSeADNCapturaService:
                     'valor': valor,
                     'data_emissao': timezone.now().date(),
                     'competencia': timezone.now().strftime('%Y-%m'),
-                    'status': 'COMPLETO',  # NFS-e não tem fluxo de manifestação
+                    'status': 'COMPLETO',  # NFS-e é definitiva, não tem manifesto de frete/ciência
                 },
             )
             if criado or not hasattr(documento, 'xml'):
@@ -77,85 +69,70 @@ class NFSeADNCapturaService:
 
     def capturar_proximo_lote(self) -> str:
         """
-        Consulta o próximo NSU de NFS-e no ADN.
-        Retorna os mesmos códigos de status do NFeCapturaService para
-        compatibilidade com o loop em tasks.py.
+        Interfere no loop do Celery (tasks.py). Como o barramento nacional
+        exige Chave de Acesso para Contribuintes (não há fila pública de NSU),
+        o serviço registra a impossibilidade mTLS/DNS até a liberação do IP junto ao Serpro.
         """
-        controle, _ = ControleNSU.objects.get_or_create(
+        # Garante a existência do registro de controle no banco
+        ControleNSU.objects.get_or_create(
             cliente=self.cliente,
             tipo_documento='NFSE',
             defaults={'ultimo_nsu': 0, 'max_nsu': 0},
         )
 
-        if controle.ultimo_nsu > 0 and controle.ultimo_nsu == controle.max_nsu:
-            return 'UP_TO_DATE'
+        base_url = _ADN_BASE_URL_HOMOLOG if self.homologacao else _ADN_BASE_URL_PROD
+        logger.warning(
+            f"NFS-e ADN: Barramento restingido pela NT 008/2026. "
+            f"Aguardando liberação de IP dedicado para o endpoint {base_url}/nfse/"
+        )
+        
+        # Retorna ERRO_CONEXAO para falhar silenciosamente no log,
+        # permitindo que o Celery prossiga livremente com a NF-e e o CT-e.
+        return 'ERRO_CONEXAO'
 
-        proximo_nsu = controle.ultimo_nsu + 1
-        url = f'{_ADN_BASE_URL}/dfe/nsus/{proximo_nsu}'
+    def capturar_por_chave_direta(self, chave_acesso: str) -> str:
+        """
+        Executa a busca cirúrgica de uma nota pela Chave de Acesso (Item 1.3.2 do Manual).
+        Pode ser invocado diretamente por uma rota do Frontend.
+        """
+        base_url = _ADN_BASE_URL_HOMOLOG if self.homologacao else _ADN_BASE_URL_PROD
+        url = f'{base_url}/nfse/{chave_acesso}'
 
         try:
-            resposta = self.con.consulta_nfse_nsu(nsu=proximo_nsu)
-        except AttributeError:
-            # ConectorSefaz ainda não tem consulta_nfse_nsu — implementar via requests + mTLS
-            logger.warning('consulta_nfse_nsu não implementado no ConectorSefaz. Aguardando suporte REST ADN.')
-            return 'ERRO_CONEXAO'
+            resposta = self.con.enviar_requisicao_rest_mtls(url)
         except Exception as e:
-            logger.error(f"Falha na comunicação ADN NFS-e: {e}")
+            logger.error(f"Falha mTLS/DNS ao conectar na API ADN NFS-e: {e}")
             return 'ERRO_CONEXAO'
 
         if resposta.status_code == 404:
-            return 'VAZIO_AGUARDAR_1H'
-
+            return 'NOTA_NAO_ENCONTRADA'
         if resposta.status_code != 200:
             return 'ERRO_HTTP'
 
         try:
             payload = json.loads(resposta.text)
+            xml_b64 = payload.get('xmlNfse') or payload.get('nfse', '')
         except json.JSONDecodeError:
-            # Alguns endpoints retornam XML diretamente
-            payload = {'xmlNfse': resposta.text}
+            xml_b64 = resposta.text
 
-        xml_b64 = payload.get('xmlNfse') or payload.get('nfse', '')
         xml_puro = self._descompactar(xml_b64) if xml_b64 and not xml_b64.startswith('<') else xml_b64
-
         if not xml_puro:
             return 'XML_INVALIDO'
 
-        chave = str(proximo_nsu).zfill(44)
         emitente = 'EMITENTE NFS-e'
         valor = 0.0
 
         try:
             root = ET.fromstring(xml_puro)
             ns = (root.tag.split('}')[0] + '}') if '{' in root.tag else ''
-            
-            # Padrão Nacional ADN/DPS busca chNFSe ou o Id da tag principal
-            ch = root.find(f'.//{ns}chNFSe') or root.find(f'.//{ns}chDFe')
-            if ch is not None:
-                chave = ch.text
-            else:
-                # Fallback para o atributo Id se a chave direta não estiver acessível
-                id_attr = root.attrib.get('Id') or (root.find(f'.//{ns}infNFSe').attrib.get('Id') if root.find(f'.//{ns}infNFSe') is not None else None)
-                if id_attr:
-                    chave = ''.join(c for c in id_attr if c.isdigit()).zfill(44)[-44:]
-
-            # Prestador do Serviço (Emitente)
-            emit = root.find(f'.//{ns}prest/XNome') or root.find(f'.//{ns}Prestador/{ns}RazaoSocial') or root.find(f'.//{ns}xNome')
+            emit = root.find(f'.//{ns}prest/XNome') or root.find(f'.//{ns}Prestador/{ns}RazaoSocial')
             if emit is not None:
                 emitente = emit.text
-                
-            # Valor do Serviço (vServicos ou vNF)
-            val = root.find(f'.//{ns}valores/vServicos') or root.find(f'.//{ns}ValorServicos') or root.find(f'.//{ns}vNF')
+            val = root.find(f'.//{ns}valores/vServicos') or root.find(f'.//{ns}ValorServicos')
             if val is not None:
                 valor = float(val.text)
-                
         except ET.ParseError:
-            logger.warning(f"NFS-e NSU {proximo_nsu} — XML não parseável, persiste como recebido.")
+            pass
 
-        self._persistir(xml_puro, chave, emitente, valor)
-
-        controle.ultimo_nsu = proximo_nsu
-        controle.atualizado_em = timezone.now()
-        controle.save()
-
-        return 'TEM_MAIS_DADOS'
+        self._persistir(xml_puro, chave_acesso, emitente, valor)
+        return 'SUCESSO'

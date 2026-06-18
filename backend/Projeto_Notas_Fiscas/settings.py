@@ -218,8 +218,8 @@ if DEBUG:
     CELERY_TASK_EAGER_PROPAGATES = True
 
 CELERY_BEAT_SCHEDULE = {
-    'captura-automatica-nfe-carteira': {
-        'task': 'fiscal.tasks.executar_captura_nfe_todos_clientes',
+    'captura-automatica-nfe-cte-carteira': {
+        'task': 'fiscal.tasks.executar_recolhimento_lote_nsu',
         'schedule': 14400.0,  # 4 horas
         'options': {'expires': 3600},
     },
