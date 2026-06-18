@@ -15,7 +15,7 @@ import { toast } from "sonner";
 
 import { AppShell } from "@/components/app-shell";
 import { useAuth } from "@/lib/auth";
-import { capturarNfseDireta, executarCaptura, listClientes, listLogs, listNSU } from "@/lib/api";
+import { capturarNfseDireta, executarCaptura, listClientes, listLogs, listNSU, reconciliar } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { formatCnpj, formatDateTime } from "@/lib/format";
-import type { Cliente, ControleNSU } from "@/lib/types";
+import type { Cliente, ControleNSU, ReconciliacaoItem } from "@/lib/types";
 import {
   Select,
   SelectContent,
@@ -65,6 +65,11 @@ function CapturaPage() {
     queryFn: listNSU,
     enabled: isStaff,
   });
+  const reconciliacaoQuery = useQuery({
+    queryKey: ["reconciliacao"],
+    queryFn: () => reconciliar(),
+    enabled: isStaff,
+  });
 
   if (!isStaff) return <Navigate to="/dashboard" replace />;
 
@@ -73,6 +78,8 @@ function CapturaPage() {
   const nsus = nsuQuery.data ?? [];
 
   const loading = clientesQuery.isLoading || logsQuery.isLoading || nsuQuery.isLoading;
+  const reconcItems = reconciliacaoQuery.data ?? [];
+  const temGap = reconcItems.some((r) => r.gap > 0);
 
   const nsuMap = new Map<number, Map<string, ControleNSU>>();
   nsus.forEach((n) => {
@@ -100,6 +107,7 @@ function CapturaPage() {
     queryClient.invalidateQueries({ queryKey: ["nsu"] });
     queryClient.invalidateQueries({ queryKey: ["logs"] });
     queryClient.invalidateQueries({ queryKey: ["documentos"] });
+    queryClient.invalidateQueries({ queryKey: ["reconciliacao"] });
   }
 
   return (
@@ -215,8 +223,99 @@ function CapturaPage() {
 
         {/* Painel NFS-e sob demanda */}
         <NfsePanel clientes={clientes} onSettled={invalidarDados} />
+
+        {/* Painel de Reconciliação NSU */}
+        <Card>
+          <CardHeader className="pb-0">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Reconciliação — capturados vs. disponível na SEFAZ</CardTitle>
+              {temGap && (
+                <Badge variant="warning" className="gap-1">
+                  <AlertTriangle className="h-3 w-3" />
+                  Gap detectado
+                </Badge>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Compare o que está no banco com o maxNSU reportado pela SEFAZ antes de fechar a competência.
+            </p>
+          </CardHeader>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead className="text-center">Capturados</TableHead>
+                  <TableHead className="text-center">Último NSU</TableHead>
+                  <TableHead className="text-center">Max NSU</TableHead>
+                  <TableHead className="text-center">Gap</TableHead>
+                  <TableHead>Situação</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {reconciliacaoQuery.isLoading ? (
+                  Array.from({ length: 3 }).map((_, i) => (
+                    <TableRow key={i}>
+                      <TableCell colSpan={7}>
+                        <Skeleton className="h-6 w-full" />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : reconcItems.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
+                      Nenhum controle de NSU registrado ainda.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  reconcItems.map((r) => (
+                    <ReconciliacaoRow key={`${r.cliente}-${r.tipo_documento}`} item={r} />
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
       </div>
     </AppShell>
+  );
+}
+
+// ── Reconciliação ────────────────────────────────────────────────────────────
+
+function ReconciliacaoRow({ item }: { item: ReconciliacaoItem }) {
+  const temGap = item.gap > 0;
+  return (
+    <TableRow className={temGap ? "bg-warning/5" : undefined}>
+      <TableCell className="font-medium">{item.cliente_nome}</TableCell>
+      <TableCell>
+        <Badge variant="outline">{item.tipo_documento}</Badge>
+      </TableCell>
+      <TableCell className="text-center tabular-nums">{item.capturados.toLocaleString("pt-BR")}</TableCell>
+      <TableCell className="text-center tabular-nums">{item.ultimo_nsu.toLocaleString("pt-BR")}</TableCell>
+      <TableCell className="text-center tabular-nums">{item.max_nsu.toLocaleString("pt-BR")}</TableCell>
+      <TableCell className="text-center">
+        {temGap ? (
+          <span className="inline-flex items-center gap-1 text-sm font-semibold text-warning">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            {item.gap.toLocaleString("pt-BR")}
+          </span>
+        ) : (
+          <span className="text-sm text-muted-foreground">0</span>
+        )}
+      </TableCell>
+      <TableCell>
+        {temGap ? (
+          <Badge variant="warning">Incompleto</Badge>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <CheckCircle2 className="h-4 w-4 text-success" />
+            <Badge variant="success">Consistente</Badge>
+          </div>
+        )}
+      </TableCell>
+    </TableRow>
   );
 }
 

@@ -15,8 +15,8 @@ import {
 } from "recharts";
 import {
   AlertTriangle,
+  Ban,
   CheckCircle2,
-  Download,
   FileText,
   ShieldCheck,
   XCircle,
@@ -69,6 +69,9 @@ function DashboardPage() {
   }, []);
 
   const totalMes = docs.filter((d) => d.competencia === currentComp).length;
+  const canceladosMes = docs.filter(
+    (d) => d.status === "CANCELADO" && d.competencia === currentComp
+  ).length;
   const certAtivos = certs.filter((c) => c.ativo && daysUntil(c.validade) > 0).length;
   const certVencidos = certs.filter((c) => !c.ativo || daysUntil(c.validade) <= 0).length;
   const certAlerta = certs.filter((c) => {
@@ -78,7 +81,6 @@ function DashboardPage() {
   const certProblematicos = certs
     .filter((c) => daysUntil(c.validade) <= 30)
     .sort((a, b) => daysUntil(a.validade) - daysUntil(b.validade));
-  const downloads = useMemo(() => 120 + docs.length * 2, [docs.length]);
 
   const byTipo = useMemo(() => {
     const map: Record<string, number> = {};
@@ -107,6 +109,18 @@ function DashboardPage() {
   return (
     <AppShell title="Dashboard">
       <div className="space-y-6">
+        {!loading && canceladosMes > 0 && (
+          <Alert className="border-destructive/30 bg-destructive/5 [&>svg]:text-destructive">
+            <Ban className="h-4 w-4" />
+            <AlertTitle className="font-semibold">
+              {canceladosMes} nota(s) cancelada(s) em {formatCompetencia(currentComp)}
+            </AlertTitle>
+            <AlertDescription className="text-sm text-muted-foreground">
+              Documentos com status <strong>Cancelado</strong> foram detectados na competência atual.
+              Verifique a aba <strong>Documentos</strong> filtrando por status "Cancelado" para confirmar o impacto no balancete.
+            </AlertDescription>
+          </Alert>
+        )}
         {!loading && certProblematicos.length > 0 && (
           <Alert className="border-warning/30 bg-warning/5 [&>svg]:text-warning">
             <AlertTriangle className="h-4 w-4" />
@@ -151,11 +165,11 @@ function DashboardPage() {
             tone={certVencidos > 0 || certAlerta > 0 ? "danger" : "muted"}
           />
           <MetricCard
-            label="Downloads realizados"
-            value={loading ? null : downloads.toLocaleString("pt-BR")}
-            hint="XML + lotes ZIP"
-            icon={Download}
-            tone="muted"
+            label="Canceladas no mês"
+            value={loading ? null : String(canceladosMes)}
+            hint={canceladosMes > 0 ? "Verificar na aba Documentos" : "Nenhuma cancelada"}
+            icon={Ban}
+            tone={canceladosMes > 0 ? "danger" : "muted"}
           />
         </div>
 
