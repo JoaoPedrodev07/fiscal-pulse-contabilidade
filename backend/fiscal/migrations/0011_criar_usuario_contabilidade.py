@@ -3,34 +3,20 @@
 import os
 from django.db import migrations
 
-CNPJ_BOTODERMA   = '54565144000114'
-RAZAO_BOTODERMA  = 'BOTODERMA OFICIAL LTDA'
-USERNAME         = 'botoderma'
-
 
 def criar_usuario_botoderma(apps, schema_editor):
-    # Lê a senha da env var CLIENT_USER_1 (formato user:senha:cnpj[:razao])
     raw = os.environ.get('CLIENT_USER_1', '')
     parts = raw.split(':')
-    if len(parts) < 2 or parts[0] != USERNAME:
-        return  # env var ausente ou para outro usuário — pula
+    if len(parts) < 2:
+        return  # env var ausente — pula
 
+    username = parts[0]
     password = parts[1]
 
     from django.contrib.auth import get_user_model
-    from fiscal.models import Cliente
-
-    cliente, _ = Cliente.objects.get_or_create(
-        cnpj=CNPJ_BOTODERMA,
-        defaults={'razao_social': RAZAO_BOTODERMA, 'ativo': True},
-    )
-
     User = get_user_model()
-    user, created = User.objects.get_or_create(username=USERNAME)
-    user.is_staff     = False
-    user.is_superuser = False
-    user.is_active    = True
-    user.cliente      = cliente
+    user, _ = User.objects.get_or_create(username=username)
+    user.is_active = True
     user.set_password(password)
     user.save()
 
