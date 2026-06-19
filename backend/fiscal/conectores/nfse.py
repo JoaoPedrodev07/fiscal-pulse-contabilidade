@@ -72,6 +72,39 @@ def _deep_find(root: ET.Element, *tag_candidates: str) -> ET.Element | None:
     return None
 
 
+def _cnpj_em_secao(root: ET.Element, *secao_candidatos: str) -> str:
+    """Retorna o CNPJ (14 dígitos) dentro da primeira seção correspondente a um candidato."""
+    secoes = {c.lower() for c in secao_candidatos}
+    for el in root.iter():
+        if el.tag.split('}')[-1].lower() in secoes:
+            for child in el.iter():
+                if child.tag.split('}')[-1].lower() == 'cnpj' and child.text:
+                    digits = ''.join(c for c in child.text if c.isdigit())
+                    if len(digits) == 14:
+                        return digits
+    return ''
+
+
+def _determinar_papel_nfse(root: ET.Element | None, cliente_cnpj: str) -> str:
+    """
+    Determina EMITENTE ou TOMADOR comparando o CNPJ do prestador da nota
+    com o CNPJ do cliente que fez a consulta ao ADN.
+
+    A NFS-e Nacional (NT 008/2026) usa <emit> na raiz e <prest> dentro do DPS.
+    Se o CNPJ do prestador bate com o cliente → EMITENTE (emitiu a nota).
+    Caso contrário → TOMADOR (recebeu/tomou o serviço).
+    Retorna '' se o XML não tiver CNPJ identificável de prestador.
+    """
+    if root is None:
+        return ''
+    prestador_cnpj = _cnpj_em_secao(
+        root, 'emit', 'prest', 'emitente', 'prestador', 'dadosprestador', 'infprestador',
+    )
+    if not prestador_cnpj:
+        return ''
+    return 'EMITENTE' if prestador_cnpj == cliente_cnpj else 'TOMADOR'
+
+
 def _extrair_status_nfse(root: ET.Element | None) -> str:
     """
     Determina o status da NFS-e a partir do cStat ou de tags estruturais de cancelamento.
@@ -246,10 +279,9 @@ class NFSeADNCapturaService:
 
     def _persistir_item(self, item: dict) -> None:
         """Persiste um item de LoteDFe. Idempotente via get_or_create por ChaveAcesso."""
-        chave      = item.get('ChaveAcesso', item.get('chDFe', ''))
-        xml_puro   = item.get('ArquivoXml',  item.get('xml', ''))
-        nsu_doc    = int(item.get('NSU', item.get('nsu', 0)))
-        tipo_papel = item.get('TipoDocumento', item.get('tipoPapel', ''))
+        chave    = item.get('ChaveAcesso', item.get('chDFe', ''))
+        xml_puro = item.get('ArquivoXml',  item.get('xml', ''))
+        nsu_doc  = int(item.get('NSU', item.get('nsu', 0)))
 
         if not chave or len(chave) not in (44, 50):
             logger.warning(
@@ -279,8 +311,9 @@ class NFSeADNCapturaService:
 
         emitente, valor, data_emissao, competencia = self._extrair_campos_xml(root, nsu_doc)
         status = _extrair_status_nfse(root)
+        papel  = _determinar_papel_nfse(root, self.cliente.cnpj)
 
-        logger.debug('NFS-e NSU %s chave %s status=%s papel=%s', nsu_doc, chave[:10], status, tipo_papel)
+        logger.debug('NFS-e NSU %s chave %s status=%s papel=%s', nsu_doc, chave[:10], status, papel)
 
         try:
             documento, criado = Documento.objects.get_or_create(
@@ -293,18 +326,23 @@ class NFSeADNCapturaService:
                     'data_emissao':   data_emissao,
                     'competencia':    competencia,
                     'status':         status,
-                    'papel_nfse':     tipo_papel,
+                    'papel_nfse':     papel,
                     'metadados': {
                         'nsu':        nsu_doc,
-                        'papel_nfse': tipo_papel,
+                        'papel_nfse': papel,
                     },
                 },
             )
             if not criado:
-                # Atualiza status mesmo em documentos ja existentes
+                updates = {}
                 if documento.status != status:
-                    documento.status = status
-                    documento.save(update_fields=['status'])
+                    updates['status'] = status
+                if papel and documento.papel_nfse != papel:
+                    updates['papel_nfse'] = papel
+                if updates:
+                    for k, v in updates.items():
+                        setattr(documento, k, v)
+                    documento.save(update_fields=list(updates.keys()))
             if criado:
                 Xml.objects.create(documento=documento, conteudo=xml_puro)
             elif not Xml.objects.filter(documento=documento).exists():
