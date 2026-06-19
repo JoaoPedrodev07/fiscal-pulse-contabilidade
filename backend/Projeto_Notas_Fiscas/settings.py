@@ -89,24 +89,19 @@ WSGI_APPLICATION = 'Projeto_Notas_Fiscas.wsgi.application'
 
 # ── Banco de dados ──────────────────────────────────────────────────────────────
 
-if DEBUG:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
-    }
-else:
-    def _clean_db_url(url: str) -> str:
-        """Remove sslmode da query string — OPTIONS['sslmode'] é o caminho correto."""
-        parsed = urllib.parse.urlparse(url)
-        qs = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items() if k != 'sslmode'}
-        return parsed._replace(query=urllib.parse.urlencode(qs)).geturl()
+def _clean_db_url(url: str) -> str:
+    """Remove sslmode da query string — OPTIONS['sslmode'] é o caminho correto."""
+    parsed = urllib.parse.urlparse(url)
+    qs = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items() if k != 'sslmode'}
+    return parsed._replace(query=urllib.parse.urlencode(qs)).geturl()
 
-    _raw_db_url = os.environ.get('DATABASE_URL', '')
+_raw_db_url = os.environ.get('DATABASE_URL', '')
+
+if _raw_db_url:
+    # DATABASE_URL definida: sempre usa PostgreSQL (dev local ou produção)
     DATABASES = {
         'default': dj_database_url.parse(
-            _clean_db_url(_raw_db_url) if _raw_db_url else '',
+            _clean_db_url(_raw_db_url),
             conn_max_age=600,
             conn_health_checks=True,
         )
@@ -114,6 +109,14 @@ else:
     if DATABASES['default'].get('ENGINE') == 'django.db.backends.postgresql':
         DATABASES['default'].setdefault('OPTIONS', {})
         DATABASES['default']['OPTIONS']['sslmode'] = 'require'
+else:
+    # Sem DATABASE_URL: SQLite apenas para desenvolvimento sem banco configurado
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 # ── Segurança ───────────────────────────────────────────────────────────────────
 
