@@ -94,9 +94,8 @@ class ConectorSefaz:
         """distNSU — varredura incremental de NF-e por CNPJ a partir do NSU."""
         return self._run(
             'consulta_distribuicao',
-            cUF=self._codigo_uf,
-            CNPJ=cnpj,
-            ultNSU=str(nsu).zfill(15),
+            cnpj=cnpj,
+            nsu=nsu,
         )
 
     # ── CT-e ────────────────────────────────────────────────────────────────
@@ -105,9 +104,8 @@ class ConectorSefaz:
         """distNSU — varredura incremental de CT-e por CNPJ a partir do NSU."""
         return self._run(
             'consulta_distribuicao',
-            cUF=self._codigo_uf,
-            CNPJ=cnpj,
-            ultNSU=str(nsu).zfill(15),
+            cnpj=cnpj,
+            nsu=nsu,
         )
 
     # ── NFS-e REST ADN ───────────────────────────────────────────────────────
