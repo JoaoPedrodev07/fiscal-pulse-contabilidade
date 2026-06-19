@@ -142,7 +142,12 @@ class XmlSerializer(serializers.ModelSerializer):
 
 
 class DocumentoSerializer(serializers.ModelSerializer):
-    cliente_nome = serializers.CharField(source='cliente.razao_social', read_only=True)
+    cliente_nome            = serializers.CharField(source='cliente.razao_social', read_only=True)
+    divergencia_competencia = serializers.SerializerMethodField()
+
+    def get_divergencia_competencia(self, obj) -> bool:
+        """True quando mês/ano da emissão difere da competência declarada."""
+        return obj.data_emissao.strftime('%Y-%m') != obj.competencia
 
     class Meta:
         model = Documento
@@ -150,6 +155,7 @@ class DocumentoSerializer(serializers.ModelSerializer):
             'id', 'cliente', 'cliente_nome',
             'chave', 'tipo_documento', 'emitente',
             'valor', 'data_emissao', 'competencia',
+            'divergencia_competencia',
             'status', 'papel_nfse', 'metadados', 'criado_em',
         ]
         read_only_fields = ['id', 'criado_em']

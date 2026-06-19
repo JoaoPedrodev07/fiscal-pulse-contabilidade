@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
+  AlertTriangle,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -75,6 +76,7 @@ function DocumentosPage() {
   const [inicio, setInicio] = useState<Date | undefined>();
   const [fim, setFim] = useState<Date | undefined>();
   const [page, setPage] = useState(1);
+  const [competenciaDivergente, setCompetenciaDivergente] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -94,8 +96,9 @@ function DocumentosPage() {
       papel_nfse: papelNfse !== ALL ? papelNfse : undefined,
       data_emissao_inicio: inicio ? format(inicio, "yyyy-MM-dd") : undefined,
       data_emissao_fim: fim ? format(fim, "yyyy-MM-dd") : undefined,
+      competencia_divergente: competenciaDivergente ? true : undefined,
     }),
-    [cliente, competencia, tipo, status, papelNfse, inicio, fim],
+    [cliente, competencia, tipo, status, papelNfse, inicio, fim, competenciaDivergente],
   );
 
   const docsQuery = useQuery({
@@ -123,7 +126,8 @@ function DocumentosPage() {
     status !== ALL ||
     papelNfse !== ALL ||
     !!inicio ||
-    !!fim;
+    !!fim ||
+    competenciaDivergente;
 
   function clearFilters() {
     setCliente(ALL);
@@ -133,6 +137,7 @@ function DocumentosPage() {
     setPapelNfse(ALL);
     setInicio(undefined);
     setFim(undefined);
+    setCompetenciaDivergente(false);
     setPage(1);
   }
 
@@ -176,9 +181,24 @@ function DocumentosPage() {
     <AppShell title="Documentos Capturados">
       <div className="space-y-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">
-            {docsQuery.isLoading ? "Carregando..." : `${total} documento(s) encontrado(s)`}
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="text-sm text-muted-foreground">
+              {docsQuery.isLoading ? "Carregando..." : `${total} documento(s) encontrado(s)`}
+            </p>
+            <button
+              onClick={() => { setCompetenciaDivergente((v) => !v); setPage(1); }}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
+                competenciaDivergente
+                  ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                  : "border-border text-muted-foreground hover:border-amber-400 hover:text-amber-600",
+              )}
+              title="Exibe apenas notas onde o mês de emissão difere da competência declarada"
+            >
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Competência Divergente
+            </button>
+          </div>
           <Button
             onClick={handleExport}
             disabled={exporting}
@@ -363,7 +383,17 @@ function DocumentosPage() {
                       <TableCell className="text-right font-medium tabular-nums">
                         {formatCurrency(doc.valor)}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap">{formatDate(doc.data_emissao)}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        <div className="flex flex-col gap-0.5">
+                          <span>{formatDate(doc.data_emissao)}</span>
+                          {doc.divergencia_competencia && (
+                            <span className="flex items-center gap-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                              <AlertTriangle className="h-3 w-3" />
+                              Comp. {formatCompetencia(doc.competencia)}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell className="whitespace-nowrap text-muted-foreground">
                         {formatCompetencia(doc.competencia)}
                       </TableCell>

@@ -47,6 +47,8 @@ export interface Documento {
   valor: number;
   data_emissao: string; // YYYY-MM-DD
   competencia: string; // YYYY-MM
+  /** true quando mês/ano de data_emissao difere de competencia */
+  divergencia_competencia: boolean;
   status: StatusDocumento;
   /** "EMITENTE" (receita) | "TOMADOR" (despesa) | "" — preenchido apenas para NFS-e */
   papel_nfse: string;
@@ -77,6 +79,7 @@ export interface DocumentoFilters {
   papel_nfse?: string;
   data_emissao_inicio?: string;
   data_emissao_fim?: string;
+  competencia_divergente?: boolean;
   page?: number;
   page_size?: number;
 }
