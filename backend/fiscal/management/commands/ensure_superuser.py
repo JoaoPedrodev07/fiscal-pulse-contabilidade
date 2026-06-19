@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 
 
 class Command(BaseCommand):
-    help = 'Cria superusuário a partir de variáveis de ambiente se ainda não existir.'
+    help = 'Cria ou atualiza superusuário a partir de variáveis de ambiente.'
 
     def handle(self, *args, **options):
         User = get_user_model()
@@ -19,9 +19,13 @@ class Command(BaseCommand):
             )
             return
 
-        if User.objects.filter(username=username).exists():
-            self.stdout.write(f'Superusuário "{username}" já existe — nada a fazer.')
-            return
+        user, created = User.objects.get_or_create(username=username)
+        user.email        = email
+        user.is_staff     = True
+        user.is_superuser = True
+        user.is_active    = True
+        user.set_password(password)
+        user.save()
 
-        User.objects.create_superuser(username=username, email=email, password=password)
-        self.stdout.write(self.style.SUCCESS(f'Superusuário "{username}" criado com sucesso.'))
+        action = 'criado' if created else 'atualizado'
+        self.stdout.write(self.style.SUCCESS(f'Superusuário "{username}" {action} com sucesso.'))
