@@ -71,6 +71,8 @@ def capturar_cliente(cliente) -> dict:
         if res_cte in ('ERRO_CONEXAO', 'ERRO_HTTP'):
             erros.append(f'CT-e: {res_cte}')
 
+        # NAO_IMPLEMENTADO nao e erro -- SOAP pendente, nao bloqueia NFS-e
+
         # NFS-e (REST ADN)
         nfse_service = NFSeADNCapturaService(conector_sefaz=conector, cliente=cliente)
         res_nfse = _esgotar_fila(nfse_service, cliente, 'NFSE')

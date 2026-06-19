@@ -58,6 +58,8 @@ class NFeCapturaService:
                 cnpj=self.cliente.cnpj, 
                 nsu=int(controle.ultimo_nsu)
             )
+        except NotImplementedError:
+            return "NAO_IMPLEMENTADO"
         except Exception as e:
             logger.error(f"Falha na comunicação SEFAZ: {str(e)}")
             return "ERRO_CONEXAO"

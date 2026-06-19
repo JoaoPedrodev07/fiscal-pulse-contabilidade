@@ -53,6 +53,8 @@ class CTeCapturaService:
                 cnpj=self.cliente.cnpj,
                 nsu=int(controle.ultimo_nsu),
             )
+        except NotImplementedError:
+            return 'NAO_IMPLEMENTADO'
         except Exception as e:
             logger.error(f"Falha na comunicação SEFAZ CT-e: {e}")
             return 'ERRO_CONEXAO'

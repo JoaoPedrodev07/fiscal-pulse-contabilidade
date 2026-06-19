@@ -198,8 +198,8 @@ class NFSeADNCapturaService:
 
         if not chave or len(chave) != 44:
             logger.warning(
-                'NFS-e NSU %s [%s]: chDFe invalida "%s" -- ignorado.',
-                nsu_doc, self.cliente.cnpj, chave[:20],
+                'NFS-e NSU %s [%s]: chDFe invalida "%s" -- campos do item: %s -- ignorado.',
+                nsu_doc, self.cliente.cnpj, chave[:20], list(item.keys()),
             )
             return
 
