@@ -23,6 +23,8 @@ Notas de protocolo:
   - ultNSU/maxNSU ausentes na resposta de fila vazia.
   - tipoPapel gravado em Documento.papel_nfse (campo de 1a classe) e metadados['papel_nfse'].
 """
+import base64
+import gzip
 import json
 import logging
 import os
@@ -197,10 +199,10 @@ class NFSeADNCapturaService:
         nsu_doc    = int(item.get('NSU', item.get('nsu', 0)))
         tipo_papel = item.get('TipoDocumento', item.get('tipoPapel', ''))
 
-        if not chave or len(chave) != 44:
+        if not chave or len(chave) not in (44, 50):
             logger.warning(
-                'NFS-e NSU %s [%s]: chDFe invalida "%s" -- campos do item: %s -- ignorado.',
-                nsu_doc, self.cliente.cnpj, chave[:20], list(item.keys()),
+                'NFS-e NSU %s [%s]: chave invalida len=%s valor="%s" -- ignorado.',
+                nsu_doc, self.cliente.cnpj, len(chave), chave,
             )
             return
 
@@ -209,6 +211,10 @@ class NFSeADNCapturaService:
                 'NFS-e NSU %s [%s]: campo xml vazio -- ignorado.',
                 nsu_doc, self.cliente.cnpj,
             )
+            return
+
+        xml_puro = self._decodificar_xml(xml_puro, nsu_doc)
+        if not xml_puro:
             return
 
         emitente, valor, data_emissao, competencia = self._extrair_campos_xml(xml_puro, nsu_doc)
@@ -238,6 +244,24 @@ class NFSeADNCapturaService:
 
         except Exception as e:
             logger.error('Erro ao persistir NFS-e chave %s NSU %s: %s', chave[:10], nsu_doc, e)
+
+    # -- decodificacao base64+gzip ---------------------------------------------
+
+    def _decodificar_xml(self, conteudo: str, nsu_doc: int) -> str | None:
+        """
+        ADN producao retorna ArquivoXml como base64(gzip(xml)).
+        Tenta decodificar; se ja for XML puro, retorna como esta.
+        """
+        try:
+            raw = base64.b64decode(conteudo)
+            return gzip.decompress(raw).decode('utf-8')
+        except Exception:
+            pass
+        # Ja e XML puro (homologacao ou futuras versoes)
+        if conteudo.lstrip().startswith('<'):
+            return conteudo
+        logger.warning('NFS-e NSU %s: nao foi possivel decodificar ArquivoXml.', nsu_doc)
+        return None
 
     # -- parser flexivel de XML ------------------------------------------------
 

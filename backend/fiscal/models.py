@@ -110,7 +110,7 @@ class Documento(models.Model):
     )
     # UNIQUE na chave de acesso: reexecução da captura não pode duplicar documento
     chave = models.CharField(
-        max_length=44,
+        max_length=50,  # NF-e=44 digitos, NFS-e Nacional=50 digitos
         unique=True,
         db_index=True,
         verbose_name='Chave de Acesso',
