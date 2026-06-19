@@ -13,16 +13,20 @@ from fiscal.services.cofre import decrypt_a1
 
 logger = logging.getLogger(__name__)
 
-_MAX_LOTES_POR_CLIENTE = 5
 _HOMOLOGACAO = os.environ.get('SEFAZ_HOMOLOGACAO', 'True') != 'False'
 
 
 def _esgotar_fila(service, cliente, tipo_doc: str) -> str:
-    """Loop incremental de NSU -- para quando a fila esvazia ou atinge o teto."""
+    """
+    Loop incremental de NSU sem teto artificial.
+    Para apenas quando o ADN confirma fila vazia (lote vazio ou ultNSU >= maxNSU).
+    """
     resultado = 'ERRO_CONEXAO'
-    for tentativa in range(_MAX_LOTES_POR_CLIENTE):
+    lote = 0
+    while True:
         resultado = service.capturar_proximo_lote()
-        logger.info('[%s] %s lote %d: %s', tipo_doc, cliente.razao_social, tentativa + 1, resultado)
+        lote += 1
+        logger.info('[%s] %s lote %d: %s', tipo_doc, cliente.razao_social, lote, resultado)
         if resultado != 'TEM_MAIS_DADOS':
             break
     return resultado

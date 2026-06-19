@@ -13,6 +13,7 @@ class StatusDocumento(models.TextChoices):
     MANIFESTADO = 'MANIFESTADO', 'Manifestado'
     COMPLETO    = 'COMPLETO',    'Completo'
     CANCELADO   = 'CANCELADO',   'Cancelado'
+    SUBSTITUIDO = 'SUBSTITUIDO', 'Substituído'
 
 
 class Cliente(models.Model):

@@ -1,5 +1,5 @@
 export type TipoDocumento = "NFE" | "CTE" | "NFSE" | "NFCE";
-export type StatusDocumento = "CAPTURADO" | "MANIFESTADO" | "COMPLETO" | "CANCELADO";
+export type StatusDocumento = "CAPTURADO" | "MANIFESTADO" | "COMPLETO" | "CANCELADO" | "SUBSTITUIDO";
 
 export interface UserProfile {
   id: number;

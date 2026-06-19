@@ -42,7 +42,13 @@ _ADN_BASE_HOMOLOG = 'https://adn.producaorestrita.nfse.gov.br/contribuintes'
 _ADN_BASE_PROD    = 'https://adn.nfse.gov.br/contribuintes'
 
 _VALID_HTTP_CODES     = {200, 404}
-_MAX_LOTES_BUSCA_DIR  = 10
+_MAX_LOTES_BUSCA_DIR  = 20
+
+# cStat da NFS-e Nacional que indicam cancelamento ou substituição
+_CSTAT_CANCELADO   = {101, 107, 108, 109, 110, 111, 112, 132, 133, 134, 135, 155, 301, 302}
+_CSTAT_SUBSTITUIDO = {150, 151, 152, 153, 154}
+_TAGS_CANCELAMENTO = {'infcanc', 'cancnfse', 'nfsecancelada', 'eventocancelamento', 'infcancelamento'}
+_TAGS_SUBSTITUICAO = {'nfsesubst', 'chnfsesubst', 'nfsesubstituta', 'infsubstituicao'}
 
 
 # -- Parser flexivel de XML ----------------------------------------------------
@@ -64,6 +70,36 @@ def _deep_find(root: ET.Element, *tag_candidates: str) -> ET.Element | None:
         if local in lower:
             return el
     return None
+
+
+def _extrair_status_nfse(root: ET.Element | None) -> str:
+    """
+    Determina o status da NFS-e a partir do cStat ou de tags estruturais de cancelamento.
+    Retorna: 'COMPLETO' | 'CANCELADO' | 'SUBSTITUIDO'
+    """
+    if root is None:
+        return 'COMPLETO'
+
+    el = _deep_find(root, 'cStat', 'cSitNFSe', 'situacaoNFSe')
+    if el is not None and el.text:
+        try:
+            cstat = int(el.text.strip())
+            if cstat in _CSTAT_CANCELADO:
+                return 'CANCELADO'
+            if cstat in _CSTAT_SUBSTITUIDO:
+                return 'SUBSTITUIDO'
+        except ValueError:
+            pass
+
+    # Detecta cancelamento/substituição por tags estruturais (fallback)
+    for el in root.iter():
+        local = el.tag.split('}')[-1].lower()
+        if local in _TAGS_SUBSTITUICAO:
+            return 'SUBSTITUIDO'
+        if local in _TAGS_CANCELAMENTO:
+            return 'CANCELADO'
+
+    return 'COMPLETO'
 
 
 # -- Servico -------------------------------------------------------------------
@@ -164,9 +200,8 @@ class NFSeADNCapturaService:
         controle.atualizado_em = timezone.now()
         controle.save()
 
-        # Lote < 50 itens tambem indica fim da fila disponivel
-        fila_esgotada = ult_nsu >= max_nsu or len(lote_dfe) < 50
-        return 'FINALIZADO' if fila_esgotada else 'TEM_MAIS_DADOS'
+        # Para apenas quando NSU atual atingiu o maximo confirmado pelo ADN
+        return 'FINALIZADO' if ult_nsu >= max_nsu else 'TEM_MAIS_DADOS'
 
     # -- busca direta por chave (fallback React) --------------------------------
 
@@ -193,7 +228,6 @@ class NFSeADNCapturaService:
 
     def _persistir_item(self, item: dict) -> None:
         """Persiste um item de LoteDFe. Idempotente via get_or_create por ChaveAcesso."""
-        # producao ADN usa PascalCase; homologacao usa camelCase
         chave      = item.get('ChaveAcesso', item.get('chDFe', ''))
         xml_puro   = item.get('ArquivoXml',  item.get('xml', ''))
         nsu_doc    = int(item.get('NSU', item.get('nsu', 0)))
@@ -217,7 +251,18 @@ class NFSeADNCapturaService:
         if not xml_puro:
             return
 
-        emitente, valor, data_emissao, competencia = self._extrair_campos_xml(xml_puro, nsu_doc)
+        # Parse unico: root alimenta extracao de campos e de status
+        root = None
+        try:
+            xml_bytes = xml_puro.encode('utf-8') if isinstance(xml_puro, str) else xml_puro
+            root = ET.fromstring(xml_bytes)
+        except ET.ParseError:
+            logger.warning('NFS-e NSU %s: XML invalido, campos extraidos com defaults.', nsu_doc)
+
+        emitente, valor, data_emissao, competencia = self._extrair_campos_xml(root, nsu_doc)
+        status = _extrair_status_nfse(root)
+
+        logger.debug('NFS-e NSU %s chave %s status=%s papel=%s', nsu_doc, chave[:10], status, tipo_papel)
 
         try:
             documento, criado = Documento.objects.get_or_create(
@@ -229,7 +274,7 @@ class NFSeADNCapturaService:
                     'valor':          valor,
                     'data_emissao':   data_emissao,
                     'competencia':    competencia,
-                    'status':         'COMPLETO',
+                    'status':         status,
                     'papel_nfse':     tipo_papel,
                     'metadados': {
                         'nsu':        nsu_doc,
@@ -237,6 +282,11 @@ class NFSeADNCapturaService:
                     },
                 },
             )
+            if not criado:
+                # Atualiza status mesmo em documentos ja existentes
+                if documento.status != status:
+                    documento.status = status
+                    documento.save(update_fields=['status'])
             if criado:
                 Xml.objects.create(documento=documento, conteudo=xml_puro)
             elif not Xml.objects.filter(documento=documento).exists():
@@ -266,47 +316,37 @@ class NFSeADNCapturaService:
     # -- parser flexivel de XML ------------------------------------------------
 
     def _extrair_campos_xml(
-        self, xml_puro: str, nsu_doc: int
+        self, root: ET.Element | None, nsu_doc: int
     ) -> tuple[str, float, date, str]:
         """
-        Extrai (emitente, valor, data_emissao, competencia) do XML da NFS-e Nacional.
-
-        Usa _deep_find() -- busca profunda insensivel a namespace e case --
-        para resistir a mudancas silenciosas de tag pelo governo.
-        Retorna defaults seguros se o XML estiver malformado.
+        Extrai (emitente, valor, data_emissao, competencia) de um root ja parseado.
+        Retorna defaults seguros se root for None (XML invalido).
         """
         emitente     = 'EMITENTE NFS-e'
         valor        = 0.0
         data_emissao = timezone.now().date()
         competencia  = timezone.now().strftime('%Y-%m')
 
-        try:
-            xml_bytes = xml_puro.encode('utf-8') if isinstance(xml_puro, str) else xml_puro
-            root = ET.fromstring(xml_bytes)
+        if root is None:
+            return emitente, valor, data_emissao, competencia
 
-            # Nome do prestador -- multiplos candidatos para cobrir variacoes de schema
-            el = _deep_find(root, 'xNome', 'razaoSocial', 'nomeRazaoSocial', 'nome')
-            if el is not None and el.text:
-                emitente = el.text.strip()
+        el = _deep_find(root, 'xNome', 'razaoSocial', 'nomeRazaoSocial', 'nome')
+        if el is not None and el.text:
+            emitente = el.text.strip()
 
-            # Valor do servico
-            el = _deep_find(root, 'vServicos', 'valorServicos', 'vServ', 'valorTotalServicos')
-            if el is not None and el.text:
-                try:
-                    valor = float(el.text.replace(',', '.'))
-                except ValueError:
-                    pass
+        el = _deep_find(root, 'vServicos', 'valorServicos', 'vServ', 'valorTotalServicos')
+        if el is not None and el.text:
+            try:
+                valor = float(el.text.replace(',', '.'))
+            except ValueError:
+                pass
 
-            # Data de emissao
-            el = _deep_find(root, 'dhEmi', 'dtEmissaoNFs', 'dataEmissao', 'dhEmissao', 'dtEmissao')
-            if el is not None and el.text:
-                try:
-                    data_emissao = date.fromisoformat(el.text[:10])
-                    competencia  = data_emissao.strftime('%Y-%m')
-                except ValueError:
-                    pass
-
-        except ET.ParseError:
-            logger.warning('NFS-e NSU %s: XML invalido, campos extraidos com defaults.', nsu_doc)
+        el = _deep_find(root, 'dhEmi', 'dtEmissaoNFs', 'dataEmissao', 'dhEmissao', 'dtEmissao')
+        if el is not None and el.text:
+            try:
+                data_emissao = date.fromisoformat(el.text[:10])
+                competencia  = data_emissao.strftime('%Y-%m')
+            except ValueError:
+                pass
 
         return emitente, valor, data_emissao, competencia

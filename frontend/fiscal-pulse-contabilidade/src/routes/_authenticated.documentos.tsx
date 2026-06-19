@@ -258,8 +258,9 @@ function DocumentosPage() {
                   <SelectItem value={ALL}>Todos os status</SelectItem>
                   <SelectItem value="CAPTURADO">Capturado</SelectItem>
                   <SelectItem value="MANIFESTADO">Manifestado</SelectItem>
-                  <SelectItem value="COMPLETO">Completo</SelectItem>
-                  <SelectItem value="CANCELADO">Cancelado</SelectItem>
+                  <SelectItem value="COMPLETO">Autorizada</SelectItem>
+                  <SelectItem value="CANCELADO">Cancelada</SelectItem>
+                  <SelectItem value="SUBSTITUIDO">Substituída</SelectItem>
                 </SelectContent>
               </Select>
             </FilterField>
