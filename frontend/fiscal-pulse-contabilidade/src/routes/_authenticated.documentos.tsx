@@ -160,14 +160,15 @@ function DocumentosPage() {
   }
 
   async function handleExport() {
-    if (!filters.cliente || !filters.competencia) {
-      toast.error("Selecione um cliente e uma competência antes de exportar");
+    if (!filters.cliente) {
+      toast.error("Selecione um cliente antes de exportar");
       return;
     }
     setExporting(true);
     try {
       await exportarLote(filters);
-      toast.success("Download do lote iniciado — verifique sua pasta de downloads");
+      const desc = filters.competencia ? `competência ${filters.competencia}` : "todos os períodos";
+      toast.success(`Download do lote iniciado (${desc}) — verifique sua pasta de downloads`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao exportar lote");
     } finally {
@@ -184,11 +185,13 @@ function DocumentosPage() {
           </p>
           <Button
             onClick={handleExport}
-            disabled={exporting || !filters.cliente || !filters.competencia}
+            disabled={exporting || !filters.cliente}
             title={
-              !filters.cliente || !filters.competencia
-                ? "Selecione um cliente e uma competência para exportar"
-                : "Exportar documentos filtrados em ZIP"
+              !filters.cliente
+                ? "Selecione um cliente para exportar"
+                : filters.competencia
+                  ? `Exportar XMLs de ${filters.competencia} em ZIP`
+                  : "Exportar todos os XMLs do cliente em ZIP"
             }
           >
             {exporting ? (

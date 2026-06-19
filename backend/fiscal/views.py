@@ -220,17 +220,15 @@ class DocumentoViewSet(viewsets.ReadOnlyModelViewSet):
         cliente_id = request.query_params.get('cliente')
         competencia = request.query_params.get('competencia')
 
-        if not cliente_id or not competencia:
+        if not cliente_id:
             return Response(
-                {'detail': 'Os parametros "cliente" e "competencia" sao obrigatorios.'},
+                {'detail': 'O parametro "cliente" e obrigatorio.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        qs = (
-            self.get_queryset()
-            .filter(cliente_id=cliente_id, competencia=competencia)
-            .select_related('xml')
-        )
+        qs = self.get_queryset().filter(cliente_id=cliente_id).select_related('xml')
+        if competencia:
+            qs = qs.filter(competencia=competencia)
 
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
@@ -241,7 +239,8 @@ class DocumentoViewSet(viewsets.ReadOnlyModelViewSet):
                     pass
         buffer.seek(0)
 
-        filename = f'documentos_{cliente_id}_{competencia}.zip'
+        sufixo = competencia if competencia else 'todos'
+        filename = f'documentos_{cliente_id}_{sufixo}.zip'
         response = HttpResponse(buffer.read(), content_type='application/zip')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
