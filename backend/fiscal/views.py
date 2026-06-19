@@ -159,7 +159,10 @@ class ControleNSUViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return ControleNSU.objects.select_related('cliente').all()
+        qs = ControleNSU.objects.select_related('cliente').all()
+        if not self.request.user.is_staff and self.request.user.cliente_id:
+            qs = qs.filter(cliente=self.request.user.cliente)
+        return qs
 
 
 class DocumentoViewSet(viewsets.ReadOnlyModelViewSet):
@@ -174,7 +177,10 @@ class DocumentoViewSet(viewsets.ReadOnlyModelViewSet):
         return DocumentoSerializer
 
     def get_queryset(self):
-        return Documento.objects.select_related('cliente').all()
+        qs = Documento.objects.select_related('cliente').all()
+        if not self.request.user.is_staff and self.request.user.cliente_id:
+            qs = qs.filter(cliente=self.request.user.cliente)
+        return qs
 
     @action(detail=False, methods=['get'], url_path='reconciliar')
     def reconciliar(self, request):
@@ -264,7 +270,10 @@ class LogCapturaViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return LogCaptura.objects.select_related('cliente').all()
+        qs = LogCaptura.objects.select_related('cliente').all()
+        if not self.request.user.is_staff and self.request.user.cliente_id:
+            qs = qs.filter(cliente=self.request.user.cliente)
+        return qs
 
 
 class ManifestacaoViewSet(viewsets.ReadOnlyModelViewSet):
