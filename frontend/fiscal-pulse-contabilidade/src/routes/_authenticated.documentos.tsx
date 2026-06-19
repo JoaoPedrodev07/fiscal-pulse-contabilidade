@@ -160,10 +160,6 @@ function DocumentosPage() {
   }
 
   async function handleExport() {
-    if (!filters.cliente) {
-      toast.error("Selecione um cliente antes de exportar");
-      return;
-    }
     setExporting(true);
     try {
       await exportarLote(filters);
@@ -185,13 +181,11 @@ function DocumentosPage() {
           </p>
           <Button
             onClick={handleExport}
-            disabled={exporting || !filters.cliente}
+            disabled={exporting}
             title={
-              !filters.cliente
-                ? "Selecione um cliente para exportar"
-                : filters.competencia
-                  ? `Exportar XMLs de ${filters.competencia} em ZIP`
-                  : "Exportar todos os XMLs do cliente em ZIP"
+              filters.competencia
+                ? `Exportar XMLs de ${filters.competencia} em ZIP`
+                : "Exportar todos os XMLs em ZIP"
             }
           >
             {exporting ? (
