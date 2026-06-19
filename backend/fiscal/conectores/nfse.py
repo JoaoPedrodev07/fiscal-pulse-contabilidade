@@ -178,9 +178,27 @@ class NFSeADNCapturaService:
             return 'XML_INVALIDO'
 
         lote_dfe = payload.get('LoteDFe', payload.get('loteDFe', []))
-        # ultNSU/maxNSU: producao usa PascalCase, homologacao usa camelCase
-        ult_nsu = int(payload.get('UltNSU', payload.get('ultNSU', controle.ultimo_nsu)))
-        max_nsu = int(payload.get('MaxNSU', payload.get('maxNSU', controle.max_nsu)))
+
+        # Log dos campos raiz para diagnostico de campo NSU em producao
+        logger.info(
+            'ADN NFS-e [%s] payload keys=%s lote=%d',
+            self.cliente.cnpj, list(payload.keys()), len(lote_dfe),
+        )
+
+        # ultNSU/maxNSU: tenta PascalCase e camelCase
+        ult_nsu = int(payload.get('UltNSU', payload.get('ultNSU', 0)))
+        max_nsu = int(payload.get('MaxNSU', payload.get('maxNSU', 0)))
+
+        # Fallback: se o ADN nao retornou os campos de controle NSU,
+        # deriva ult_nsu do maior NSU presente nos proprios itens do lote.
+        # max_nsu = ult_nsu + 1 forca TEM_MAIS_DADOS ate o ADN devolver lote vazio.
+        if ult_nsu == 0 and lote_dfe:
+            ult_nsu = max(
+                int(item.get('NSU', item.get('nsu', 0)))
+                for item in lote_dfe
+            )
+        if max_nsu == 0 and ult_nsu > 0:
+            max_nsu = ult_nsu + 1
 
         if not lote_dfe:
             # Fila vazia: nao avanca o ponteiro de NSU (ADN nao retorna ultNSU neste caso)
