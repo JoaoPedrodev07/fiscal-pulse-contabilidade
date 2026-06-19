@@ -83,7 +83,11 @@ def capturar_cliente(cliente) -> dict:
             sucesso  = False
             mensagem = 'Erros parciais: ' + '; '.join(erros)
         else:
-            mensagem = f'Captura NF-e ({res_nfe}) + CT-e ({res_cte}) + NFS-e ({res_nfse}) concluida.'
+            partes = []
+            if res_nfe  not in ('NAO_IMPLEMENTADO',): partes.append(f'NF-e ({res_nfe})')
+            if res_cte  not in ('NAO_IMPLEMENTADO',): partes.append(f'CT-e ({res_cte})')
+            if res_nfse not in ('NAO_IMPLEMENTADO',): partes.append(f'NFS-e ({res_nfse})')
+            mensagem = 'Captura ' + ' + '.join(partes) + ' concluida.' if partes else 'Nenhum conector ativo.'
 
     except Exception as e:
         sucesso  = False

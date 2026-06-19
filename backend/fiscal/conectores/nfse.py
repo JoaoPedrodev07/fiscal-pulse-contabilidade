@@ -139,10 +139,10 @@ class NFSeADNCapturaService:
         if payload is None:
             return 'XML_INVALIDO'
 
-        lote_dfe = payload.get('LoteDFe', [])
-        # ultNSU/maxNSU ausentes na resposta de fila vazia -- fallback para valor atual
-        ult_nsu  = int(payload.get('ultNSU', controle.ultimo_nsu))
-        max_nsu  = int(payload.get('maxNSU', controle.max_nsu))
+        lote_dfe = payload.get('LoteDFe', payload.get('loteDFe', []))
+        # ultNSU/maxNSU: producao usa PascalCase, homologacao usa camelCase
+        ult_nsu = int(payload.get('UltNSU', payload.get('ultNSU', controle.ultimo_nsu)))
+        max_nsu = int(payload.get('MaxNSU', payload.get('maxNSU', controle.max_nsu)))
 
         if not lote_dfe:
             # Fila vazia: nao avanca o ponteiro de NSU (ADN nao retorna ultNSU neste caso)
@@ -190,11 +190,12 @@ class NFSeADNCapturaService:
     # -- persistencia ----------------------------------------------------------
 
     def _persistir_item(self, item: dict) -> None:
-        """Persiste um item de LoteDFe. Idempotente via get_or_create por chDFe."""
-        chave      = item.get('chDFe', '')
-        xml_puro   = item.get('xml', '')
-        nsu_doc    = int(item.get('nsu', 0))
-        tipo_papel = item.get('tipoPapel', '')
+        """Persiste um item de LoteDFe. Idempotente via get_or_create por ChaveAcesso."""
+        # producao ADN usa PascalCase; homologacao usa camelCase
+        chave      = item.get('ChaveAcesso', item.get('chDFe', ''))
+        xml_puro   = item.get('ArquivoXml',  item.get('xml', ''))
+        nsu_doc    = int(item.get('NSU', item.get('nsu', 0)))
+        tipo_papel = item.get('TipoDocumento', item.get('tipoPapel', ''))
 
         if not chave or len(chave) != 44:
             logger.warning(
