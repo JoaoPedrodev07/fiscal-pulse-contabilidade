@@ -7,5 +7,8 @@ python manage.py migrate --noinput
 echo "==> Criando superusuário (se não existir)..."
 python manage.py ensure_superuser
 
+echo "==> Criando usuários de clientes..."
+python manage.py ensure_client_users
+
 echo "==> Iniciando gunicorn..."
 exec gunicorn Projeto_Notas_Fiscas.wsgi:application
