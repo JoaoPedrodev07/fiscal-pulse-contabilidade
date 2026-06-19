@@ -1,15 +1,13 @@
 """
 Fábrica de conectores SEFAZ.
 
-Responsabilidade: descriptografar o A1 do banco, escrever um temp file
-durante a chamada SOAP (PyNFe exige caminho em disco), deletar imediatamente,
-e devolver um adapter com interface uniforme para NFeCapturaService e CTeCapturaService.
+Comunicação fiscal usa apenas requests + cryptography:
+- NFS-e: REST mTLS via ADN (requests)
+- NF-e / CT-e: SOAP ainda não implementado sem pynfe
 """
 import logging
 import os
 import tempfile
-
-from pynfe.processamento.comunicacao import ComunicacaoSefaz
 
 from fiscal.models import Certificado as CertificadoModel
 from fiscal.services.cofre import decrypt_a1
@@ -25,24 +23,8 @@ _UF_CODIGO = {
 }
 
 
-def _normalizar_resposta_pynfe(xml_resposta) -> str:
-    if hasattr(xml_resposta, 'text'):
-        xml_resposta = xml_resposta.text
-    if isinstance(xml_resposta, bytes):
-        return xml_resposta.decode('utf-8', errors='ignore')
-    if isinstance(xml_resposta, str):
-        return xml_resposta
-    try:
-        from lxml import etree
-        if isinstance(xml_resposta, etree._Element):
-            return etree.tostring(xml_resposta, encoding='unicode')
-    except Exception:
-        pass
-    return str(xml_resposta)
-
-
 class _RespostaAdapter:
-    """Envolve o XML da SEFAZ numa interface .status_code/.text compatível com NFeCapturaService."""
+    """Interface .status_code/.text compatível com NFeCapturaService."""
     status_code = 200
 
     def __init__(self, texto: str):
@@ -51,11 +33,11 @@ class _RespostaAdapter:
 
 class ConectorSefaz:
     """
-    Adapter que recebe os bytes do PFX descriptografados em RAM e expõe os
-    métodos de consulta usados pelos serviços de captura.
+    Adapter que mantém o PFX descriptografado em RAM e expõe os métodos
+    de consulta usados pelos serviços de captura.
 
-    O PFX é gravado em disco APENAS durante cada chamada SOAP e deletado
-    imediatamente no bloco finally — janela de exposição < 1 ms.
+    O PFX é gravado em disco APENAS durante chamadas REST (PEM temporário)
+    e deletado imediatamente no bloco finally.
     """
 
     def __init__(self, pfx_bytes: bytes, senha: str, uf: str, codigo_uf: int, homologacao: bool):
@@ -65,56 +47,30 @@ class ConectorSefaz:
         self._codigo_uf = codigo_uf
         self._homologacao = homologacao
 
-    def _comunicacao(self, tmp_path: str) -> ComunicacaoSefaz:
-        return ComunicacaoSefaz(
-            uf=self._uf,
-            certificado=tmp_path,
-            certificado_senha=self._senha,
-            homologacao=self._homologacao,
-        )
-
-    def _run(self, metodo_nome: str, **kwargs) -> _RespostaAdapter:
-        """Cria o temp file, chama o método PyNFe e deleta o arquivo."""
-        fd, tmp_path = tempfile.mkstemp(suffix='.pfx')
-        try:
-            os.write(fd, self._pfx_bytes)
-            os.close(fd)
-            com = self._comunicacao(tmp_path)
-            resultado = getattr(com, metodo_nome)(**kwargs)
-            return _RespostaAdapter(_normalizar_resposta_pynfe(resultado))
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-
     # ── NF-e ────────────────────────────────────────────────────────────────
 
     def consulta_notas_cnpj(self, cnpj: str, nsu: int) -> _RespostaAdapter:
-        """distNSU — varredura incremental de NF-e por CNPJ a partir do NSU."""
-        return self._run(
-            'consulta_distribuicao',
-            cnpj=cnpj,
-            nsu=nsu,
+        """distNSU NF-e via SOAP — pendente de implementação sem pynfe."""
+        raise NotImplementedError(
+            'NF-e SOAP não implementado. pynfe foi removido. '
+            'Implemente via requests+zeep ou biblioteca SOAP pura.'
         )
 
     # ── CT-e ────────────────────────────────────────────────────────────────
 
     def consulta_ctes_cnpj(self, cnpj: str, nsu: int) -> _RespostaAdapter:
-        """distNSU — varredura incremental de CT-e por CNPJ a partir do NSU."""
-        return self._run(
-            'consulta_distribuicao',
-            cnpj=cnpj,
-            nsu=nsu,
+        """distNSU CT-e via SOAP — pendente de implementação sem pynfe."""
+        raise NotImplementedError(
+            'CT-e SOAP não implementado. pynfe foi removido. '
+            'Implemente via requests+zeep ou biblioteca SOAP pura.'
         )
 
     # ── NFS-e REST ADN ───────────────────────────────────────────────────────
 
     def enviar_requisicao_rest_mtls(self, url: str, metodo: str = 'GET') -> object:
         """
-        Executa uma requisição REST com mTLS usando o PFX em memória.
-        Extrai cert + chave em PEM on-the-fly via `cryptography`.
-        Dois arquivos temporários deletados no bloco finally (< 1 ms em disco).
+        Requisição REST com mTLS usando PFX em memória.
+        PEM extraído on-the-fly via cryptography, dois temp files deletados no finally.
         """
         import requests
         from cryptography.hazmat.primitives.serialization import (
@@ -149,22 +105,16 @@ class ConectorSefaz:
     # ── Manifestação ────────────────────────────────────────────────────────
 
     def enviar_manifestacao(self, cnpj: str, chave_nfe: str, tipo_evento: str = '210210') -> _RespostaAdapter:
-        """
-        Envia Ciência da Operação (210210) ou outro evento de manifestação.
-        PyNFe monta o XML, assina (XML-DSig) e envia via mTLS.
-        """
-        return self._run(
-            'evento',
-            cnpj=cnpj,
-            chave=chave_nfe,
-            tipo_evento=tipo_evento,
+        """Manifestação do Destinatário via SOAP — pendente de implementação sem pynfe."""
+        raise NotImplementedError(
+            'Manifestação SOAP não implementada. pynfe foi removido.'
         )
 
 
 def inicializar_cliente_sefaz(cliente_obj, senha_certificado: str, homologacao: bool = True) -> ConectorSefaz:
     """
-    Ponto de entrada da fábrica. Chamado pela task para cada cliente ativo.
-    Retorna um ConectorSefaz pronto para ser passado a NFeCapturaService ou CTeCapturaService.
+    Ponto de entrada da fábrica. Retorna ConectorSefaz pronto para NFS-e.
+    NF-e e CT-e pendentes de implementação SOAP sem pynfe.
     """
     cert_db = CertificadoModel.objects.filter(cliente=cliente_obj, ativo=True).first()
     if not cert_db or not cert_db.conteudo_criptografado:
