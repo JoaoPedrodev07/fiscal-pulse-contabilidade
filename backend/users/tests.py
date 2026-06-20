@@ -162,3 +162,137 @@ class ListaUsuariosTest(APITestCase):
     def test_sem_auth_retorna_401(self):
         res = self.client.get("/api/users/")
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Endpoint público de registro de escritório — POST /api/registro/
+# ──────────────────────────────────────────────────────────────────────────────
+
+PAYLOAD_VALIDO = {
+    "razao_social": "Contabilidade Teste LTDA",
+    "cnpj": "12345678000199",
+    "username": "conta.teste",
+    "email": "contato@teste.com.br",
+    "senha": "senha_segura123",
+    "confirmar_senha": "senha_segura123",
+}
+
+
+class RegistroEscritorioTest(APITestCase):
+    """
+    POST /api/registro/ cria Escritório + usuário admin sem exigir autenticação.
+    Qualquer erro de validação deve retornar 400 com a chave do campo afetado.
+    """
+
+    URL = "/api/registro/"
+
+    def _post(self, **overrides):
+        payload = {**PAYLOAD_VALIDO, **overrides}
+        return self.client.post(self.URL, payload, format="json")
+
+    # -- Sucesso ------------------------------------------------------------------
+
+    def test_sucesso_retorna_201(self):
+        res = self._post()
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+    def test_sucesso_cria_escritorio_no_banco(self):
+        from fiscal.models import Escritorio
+        self._post()
+        self.assertTrue(Escritorio.objects.filter(cnpj="12345678000199").exists())
+
+    def test_sucesso_cria_usuario_is_staff(self):
+        self._post()
+        u = User.objects.get(username="conta.teste")
+        self.assertTrue(u.is_staff)
+
+    def test_sucesso_usuario_vinculado_ao_escritorio(self):
+        from fiscal.models import Escritorio
+        self._post()
+        escritorio = Escritorio.objects.get(cnpj="12345678000199")
+        u = User.objects.get(username="conta.teste")
+        self.assertEqual(u.escritorio, escritorio)
+
+    def test_sucesso_usuario_com_email_correto(self):
+        self._post()
+        u = User.objects.get(username="conta.teste")
+        self.assertEqual(u.email, "contato@teste.com.br")
+
+    def test_sucesso_sem_autenticacao(self):
+        """Endpoint é público — não exige token."""
+        res = self._post()
+        self.assertNotEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertNotEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_resposta_contem_detail(self):
+        res = self._post()
+        self.assertIn("detail", res.data)
+
+    # -- Validação do escritório --------------------------------------------------
+
+    def test_razao_social_vazia_retorna_400(self):
+        res = self._post(razao_social="")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("razao_social", res.data)
+
+    def test_cnpj_com_menos_de_14_digitos_retorna_400(self):
+        res = self._post(cnpj="1234567800019")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("cnpj", res.data)
+
+    def test_cnpj_com_mais_de_14_digitos_retorna_400(self):
+        res = self._post(cnpj="123456780001999")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("cnpj", res.data)
+
+    def test_cnpj_com_pontuacao_e_aceito(self):
+        """Frontend envia CNPJ formatado; o backend deve aceitar e limpar."""
+        res = self._post(cnpj="12.345.678/0001-99")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+    def test_cnpj_duplicado_retorna_400(self):
+        self._post()
+        res = self._post(username="outro.user", email="outro@x.com")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("cnpj", res.data)
+
+    # -- Validação do acesso ------------------------------------------------------
+
+    def test_username_vazio_retorna_400(self):
+        res = self._post(username="")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("username", res.data)
+
+    def test_username_duplicado_retorna_400(self):
+        self._post()
+        res = self._post(cnpj="98765432000110", email="outro@x.com")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("username", res.data)
+
+    def test_email_invalido_retorna_400(self):
+        res = self._post(email="nao-e-um-email")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", res.data)
+
+    def test_email_duplicado_retorna_400(self):
+        self._post()
+        res = self._post(cnpj="98765432000110", username="outro.user")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", res.data)
+
+    def test_senha_curta_retorna_400(self):
+        res = self._post(senha="curta", confirmar_senha="curta")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("senha", res.data)
+
+    def test_senhas_diferentes_retornam_400(self):
+        res = self._post(confirmar_senha="senha_diferente123")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("confirmar_senha", res.data)
+
+    def test_multiplos_erros_retornam_todos_os_campos(self):
+        """Um payload completamente vazio deve listar todos os campos obrigatórios."""
+        res = self.client.post(self.URL, {}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        for campo in ("razao_social", "cnpj", "username", "email", "senha"):
+            self.assertIn(campo, res.data, f"Campo ausente nos erros: {campo}")
