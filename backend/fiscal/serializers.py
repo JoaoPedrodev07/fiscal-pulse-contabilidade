@@ -2,14 +2,30 @@ import datetime
 import re
 
 from rest_framework import serializers
-from .models import Cliente, Certificado, ControleNSU, Documento, Xml, LogCaptura, Manifestacao
+from .models import Cliente, Certificado, ControleNSU, Documento, Escritorio, Xml, LogCaptura, Manifestacao
+
+
+class EscritorioSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Escritorio
+        fields = ['id', 'razao_social', 'cnpj', 'ativo', 'criado_em']
+        read_only_fields = ['id', 'criado_em']
+
+    def validate_cnpj(self, value):
+        if not re.fullmatch(r'\d{14}', value):
+            raise serializers.ValidationError(
+                'CNPJ deve conter exatamente 14 dígitos numéricos, sem pontuação.'
+            )
+        return value
 
 
 class ClienteSerializer(serializers.ModelSerializer):
+    escritorio_nome = serializers.CharField(source='escritorio.razao_social', read_only=True)
+
     class Meta:
         model = Cliente
-        fields = ['id', 'cnpj', 'razao_social', 'telefone', 'uf', 'ativo', 'criado_em']
-        read_only_fields = ['id', 'criado_em']
+        fields = ['id', 'escritorio', 'escritorio_nome', 'cnpj', 'razao_social', 'telefone', 'uf', 'ativo', 'criado_em']
+        read_only_fields = ['id', 'criado_em', 'escritorio', 'escritorio_nome']
 
     def validate_cnpj(self, value):
         if not re.fullmatch(r'\d{14}', value):

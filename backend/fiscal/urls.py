@@ -1,5 +1,6 @@
 from rest_framework.routers import DefaultRouter
 from .views import (
+    EscritorioViewSet,
     ClienteViewSet,
     CertificadoViewSet,
     ControleNSUViewSet,
@@ -9,6 +10,7 @@ from .views import (
 )
 
 router = DefaultRouter()
+router.register(r'escritorios',    EscritorioViewSet,    basename='escritorio')
 router.register(r'clientes',       ClienteViewSet,       basename='cliente')
 router.register(r'certificados',   CertificadoViewSet,   basename='certificado')
 router.register(r'controles-nsu',  ControleNSUViewSet,   basename='controle-nsu')

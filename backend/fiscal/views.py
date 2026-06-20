@@ -11,7 +11,7 @@ from rest_framework.filters import SearchFilter
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django_filters.rest_framework import DjangoFilterBackend
 
-from .models import Cliente, Certificado, ControleNSU, Documento, LogCaptura, Manifestacao
+from .models import Cliente, Certificado, ControleNSU, Documento, Escritorio, LogCaptura, Manifestacao
 from .serializers import (
     ClienteSerializer,
     CertificadoSerializer,
@@ -24,17 +24,62 @@ from .serializers import (
     ManifestacaoSerializer,
 )
 from .filters import DocumentoFilter
+from .serializers import EscritorioSerializer
+
+
+def _qs_por_escritorio(qs, user, campo_escritorio='cliente__escritorio_id'):
+    """
+    Aplica isolamento multi-tenant a qualquer queryset que tenha FK para Cliente.
+
+    Regras:
+      - Superusuário (is_superuser=True): vê tudo, sem filtro.
+      - Staff do escritório (is_staff=True, escritorio_id set): vê todos os dados do seu escritório.
+      - Usuário final (is_staff=False, cliente_id set): vê apenas seus próprios documentos.
+    """
+    if user.is_superuser:
+        return qs
+    if user.escritorio_id:
+        qs = qs.filter(**{campo_escritorio: user.escritorio_id})
+    if not user.is_staff and user.cliente_id:
+        qs = qs.filter(cliente_id=user.cliente_id)
+    return qs
+
+
+class EscritorioViewSet(viewsets.ModelViewSet):
+    """CRUD de escritórios de contabilidade. Acesso exclusivo de superadmin."""
+    serializer_class = EscritorioSerializer
+    permission_classes = [IsAdminUser]
+    queryset = Escritorio.objects.all()
+
+    def get_permissions(self):
+        # Apenas superusuários podem criar/editar/deletar escritórios
+        return [IsAdminUser()]
 
 
 class ClienteViewSet(viewsets.ModelViewSet):
-    """CRUD de clientes fiscais (CNPJs da carteira). Acesso restrito a staff."""
+    """CRUD de clientes fiscais (CNPJs da carteira do escritório)."""
     serializer_class = ClienteSerializer
-    queryset = Cliente.objects.all()
 
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):
             return [IsAuthenticated()]
         return [IsAdminUser()]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_superuser:
+            return Cliente.objects.all()
+        qs = Cliente.objects.all()
+        if user.escritorio_id:
+            qs = qs.filter(escritorio_id=user.escritorio_id)
+        if not user.is_staff and user.cliente_id:
+            qs = qs.filter(id=user.cliente_id)
+        return qs
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        escritorio = None if user.is_superuser else user.escritorio
+        serializer.save(escritorio=escritorio)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -135,7 +180,8 @@ class CertificadoViewSet(viewsets.ModelViewSet):
         return [IsAdminUser()]
 
     def get_queryset(self):
-        return Certificado.objects.select_related('cliente').all()
+        qs = Certificado.objects.select_related('cliente').all()
+        return _qs_por_escritorio(qs, self.request.user)
 
     @action(detail=True, methods=['post'], url_path='upload', permission_classes=[IsAdminUser])
     def upload_certificado(self, request, pk=None):
@@ -160,9 +206,7 @@ class ControleNSUViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = ControleNSU.objects.select_related('cliente').all()
-        if not self.request.user.is_staff and self.request.user.cliente_id:
-            qs = qs.filter(cliente=self.request.user.cliente)
-        return qs
+        return _qs_por_escritorio(qs, self.request.user)
 
 
 class DocumentoViewSet(viewsets.ReadOnlyModelViewSet):
@@ -178,9 +222,7 @@ class DocumentoViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = Documento.objects.select_related('cliente').all()
-        if not self.request.user.is_staff and self.request.user.cliente_id:
-            qs = qs.filter(cliente=self.request.user.cliente)
-        return qs
+        return _qs_por_escritorio(qs, self.request.user)
 
     @action(detail=False, methods=['get'], url_path='reconciliar')
     def reconciliar(self, request):
@@ -268,9 +310,7 @@ class LogCapturaViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = LogCaptura.objects.select_related('cliente').all()
-        if not self.request.user.is_staff and self.request.user.cliente_id:
-            qs = qs.filter(cliente=self.request.user.cliente)
-        return qs
+        return _qs_por_escritorio(qs, self.request.user)
 
 
 class ManifestacaoViewSet(viewsets.ReadOnlyModelViewSet):
@@ -279,6 +319,8 @@ class ManifestacaoViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Manifestacao.objects.select_related(
-            'documento', 'documento__cliente'
-        ).all()
+        qs = Manifestacao.objects.select_related('documento', 'documento__cliente').all()
+        return _qs_por_escritorio(
+            qs, self.request.user,
+            campo_escritorio='documento__cliente__escritorio_id',
+        )

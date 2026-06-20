@@ -1,6 +1,29 @@
 from django.db import models
 
 
+class Escritorio(models.Model):
+    """
+    Tenant raiz do sistema. Cada escritório de contabilidade é um Escritorio.
+    Todos os Clientes (CNPJs da carteira) e Usuários pertencem a um Escritorio.
+    Superusuários (is_superuser=True) ficam com escritorio=None e veem tudo.
+    """
+    razao_social = models.CharField(max_length=255, verbose_name='Razão Social')
+    cnpj         = models.CharField(
+        max_length=14, unique=True, verbose_name='CNPJ',
+        help_text='CNPJ do próprio escritório de contabilidade, sem pontuação.',
+    )
+    ativo     = models.BooleanField(default=True, verbose_name='Ativo')
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Escritório'
+        verbose_name_plural = 'Escritórios'
+        ordering = ['razao_social']
+
+    def __str__(self):
+        return f'{self.razao_social} ({self.cnpj})'
+
+
 class TipoDocumento(models.TextChoices):
     NFE  = 'NFE',  'NF-e'
     CTE  = 'CTE',  'CT-e'
@@ -18,9 +41,17 @@ class StatusDocumento(models.TextChoices):
 
 class Cliente(models.Model):
     """
-    CNPJ da carteira do escritório. NÃO loga no sistema —
+    CNPJ da carteira de um Escritorio. NÃO loga no sistema —
     é gerenciado pelos Users (equipe da contabilidade).
     """
+    escritorio = models.ForeignKey(
+        Escritorio,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name='clientes',
+        verbose_name='Escritório',
+    )
     cnpj         = models.CharField(max_length=14, unique=True, verbose_name='CNPJ',
                                     help_text='Somente dígitos, sem pontuação.')
     razao_social = models.CharField(max_length=255, verbose_name='Razão Social')

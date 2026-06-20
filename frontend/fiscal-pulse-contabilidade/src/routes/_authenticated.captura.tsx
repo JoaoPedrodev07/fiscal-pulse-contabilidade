@@ -116,12 +116,12 @@ function CapturaPage() {
         <Alert className="border-primary/30 bg-primary/5">
           <Info className="h-4 w-4 text-primary" />
           <AlertTitle className="text-primary font-semibold">
-            Captura automática ativa — intervalo de 4 horas
+            Captura automática ativa — intervalo de 1 hora
           </AlertTitle>
           <AlertDescription className="text-muted-foreground">
             <p>
-              O Celery Beat executa <strong className="text-foreground">NF-e + CT-e + NFS-e</strong> (NSU
-              incremental) para todos os clientes ativos a cada 4 horas. A busca por Chave de Acesso
+              O robô executa <strong className="text-foreground">NF-e + CT-e + NFS-e</strong> (NSU
+              incremental) para todos os clientes ativos a cada 1 hora. A busca por Chave de Acesso
               abaixo é um fallback cirúrgico para notas específicas.
             </p>
             <ul className="mt-2 space-y-1.5 text-xs">
@@ -367,7 +367,7 @@ function NfsePanel({
       <CardHeader className="pb-2">
         <CardTitle className="text-base">NFS-e — Busca cirúrgica por Chave de Acesso</CardTitle>
         <p className="text-xs text-muted-foreground">
-          <strong className="text-foreground">A captura automática já cobre NFS-e a cada 4h.</strong>{" "}
+          <strong className="text-foreground">A captura automática já cobre NFS-e a cada 1h.</strong>{" "}
           Use este formulário apenas se uma nota específica não aparecer após o ciclo automático.
           Não é necessário informar senha — o certificado do cliente é usado automaticamente do cofre.
         </p>

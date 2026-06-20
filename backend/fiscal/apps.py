@@ -7,7 +7,7 @@ from django.apps import AppConfig
 
 logger = logging.getLogger(__name__)
 
-_INTERVALO_SEGUNDOS = 4 * 3600  # 4 horas
+_INTERVALO_SEGUNDOS = 1 * 3600  # 1 hora
 _WARMUP_SEGUNDOS    = 90        # aguarda gunicorn estabilizar antes da primeira captura
 
 
