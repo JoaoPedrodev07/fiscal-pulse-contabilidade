@@ -29,20 +29,17 @@ from .serializers import EscritorioSerializer
 
 def _qs_por_escritorio(qs, user, campo_escritorio='cliente__escritorio_id'):
     """
-    Aplica isolamento multi-tenant a qualquer queryset que tenha FK para Cliente.
+    Isolamento multi-tenant: usuários são da equipe do escritório, nunca clientes finais.
 
-    Regras:
-      - Superusuário (is_superuser=True): vê tudo, sem filtro.
-      - Staff do escritório (is_staff=True, escritorio_id set): vê todos os dados do seu escritório.
-      - Usuário final (is_staff=False, cliente_id set): vê apenas seus próprios documentos.
+    - Superusuário (is_superuser=True, escritorio=None): vê tudo.
+    - Usuário de escritório (escritorio_id set): vê só dados do seu escritório.
+    - Sem escritorio_id (situação anômala): retorna queryset vazio por segurança.
     """
     if user.is_superuser:
         return qs
     if user.escritorio_id:
-        qs = qs.filter(**{campo_escritorio: user.escritorio_id})
-    if not user.is_staff and user.cliente_id:
-        qs = qs.filter(cliente_id=user.cliente_id)
-    return qs
+        return qs.filter(**{campo_escritorio: user.escritorio_id})
+    return qs.none()
 
 
 class EscritorioViewSet(viewsets.ModelViewSet):
@@ -69,12 +66,9 @@ class ClienteViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.is_superuser:
             return Cliente.objects.all()
-        qs = Cliente.objects.all()
         if user.escritorio_id:
-            qs = qs.filter(escritorio_id=user.escritorio_id)
-        if not user.is_staff and user.cliente_id:
-            qs = qs.filter(id=user.cliente_id)
-        return qs
+            return Cliente.objects.filter(escritorio_id=user.escritorio_id)
+        return Cliente.objects.none()
 
     def perform_create(self, serializer):
         user = self.request.user
