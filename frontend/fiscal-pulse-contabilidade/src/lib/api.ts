@@ -95,7 +95,35 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 // ----------------------------- AUTH -----------------------------
-// POST /api/token/
+
+// POST /api/registro/  — público, sem JWT
+export async function registrarEscritorio(payload: {
+  razao_social: string;
+  cnpj: string;
+  username: string;
+  email: string;
+  senha: string;
+  confirmar_senha: string;
+}): Promise<{ detail: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/registro/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    // Coleta o primeiro erro de campo ou detail
+    const first =
+      body?.detail ??
+      Object.values(body as Record<string, string[]>)
+        .flat()
+        .find((v) => typeof v === "string");
+    throw new Error(typeof first === "string" ? first : `Erro ${res.status}`);
+  }
+  return res.json();
+}
+
 // POST /api/token/
 export async function login(username: string, password: string) {
   if (USE_MOCK) {

@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AlertCircle, Eye, EyeOff, Loader2, ReceiptText, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
@@ -175,6 +175,13 @@ function LoginPage() {
               {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Entrar
             </Button>
+
+            <p className="text-center text-sm text-muted-foreground">
+              Novo no Fiscal Tracker?{" "}
+              <Link to="/registro" className="font-medium text-primary hover:underline">
+                Criar conta
+              </Link>
+            </p>
           </form>
         </div>
       </div>

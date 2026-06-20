@@ -526,3 +526,102 @@ class TestEsgotarFila(TestCase):
         resultado = _esgotar_fila(svc, self.cliente, "CTE")
         self.assertEqual(resultado, "VAZIO_AGUARDAR_1H")
         self.assertEqual(svc.capturar_proximo_lote.call_count, 3)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 4. NFe — detecção de cancelamento via _processar_evento
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _xml_evento_cancelamento(chave: str, tp_evento: str = "110111",
+                              ns: str = "http://www.portalfiscal.inf.br/nfe") -> str:
+    return (
+        f'<?xml version="1.0" encoding="utf-8"?>'
+        f'<procEventoNFe versao="1.00" xmlns="{ns}">'
+        f'<evento><infEvento Id="ID1">'
+        f'<tpEvento>{tp_evento}</tpEvento>'
+        f'<chNFe>{chave}</chNFe>'
+        f'</infEvento></evento>'
+        f'<retEvento><infProt><cStat>135</cStat></infProt></retEvento>'
+        f'</procEventoNFe>'
+    )
+
+
+class TestProcessarEventoCancelamento(TestCase):
+    """
+    _processar_evento() deve detectar tpEvento=110111 e marcar o Documento
+    correspondente como CANCELADO. Outros eventos devem ser ignorados silenciosamente.
+    """
+
+    CHAVE = "35260612345678000199550010000000010000000099"
+
+    def setUp(self):
+        self.cliente = Cliente.objects.create(
+            cnpj="77777777000177",
+            razao_social="Cancelamento Teste LTDA",
+            uf="SP",
+        )
+        self.doc = Documento.objects.create(
+            cliente=self.cliente,
+            chave=self.CHAVE,
+            tipo_documento="NFE",
+            emitente="Emitente X",
+            valor="100.00",
+            data_emissao="2026-01-01",
+            competencia="2026-01",
+            status="CAPTURADO",
+        )
+        self.svc = NFeCapturaService(conector_sefaz=MagicMock(), cliente=self.cliente)
+
+    def test_cancelamento_atualiza_status_para_cancelado(self):
+        xml = _xml_evento_cancelamento(self.CHAVE)
+        self.svc._processar_evento(xml, "999")
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.status, "CANCELADO")
+
+    def test_outro_evento_nao_altera_status(self):
+        """tpEvento diferente de 110111 (ex.: 210200 Confirmação) é ignorado."""
+        xml = _xml_evento_cancelamento(self.CHAVE, tp_evento="210200")
+        self.svc._processar_evento(xml, "998")
+        self.doc.refresh_from_db()
+        self.assertNotEqual(self.doc.status, "CANCELADO")
+
+    def test_cancelamento_chave_nao_encontrada_nao_crasha(self):
+        """Evento de cancelamento para chave ausente no banco não propaga exceção."""
+        xml = _xml_evento_cancelamento("9" * 44)
+        try:
+            self.svc._processar_evento(xml, "997")
+        except Exception as exc:
+            self.fail(f"_processar_evento levantou exceção inesperada: {exc}")
+
+    def test_xml_corrompido_nao_propaga_excecao(self):
+        """XML malformado no evento deve ser absorvido sem propagar ParseError."""
+        try:
+            self.svc._processar_evento("<<< xml invalido >>>", "996")
+        except Exception as exc:
+            self.fail(f"_processar_evento levantou exceção com XML inválido: {exc}")
+
+    def test_cancelamento_via_loop_dist_nsu(self):
+        """
+        Integração: docZip com schema=procEventoNFe dentro do lote 138 deve
+        resultar em Documento.status='CANCELADO' ao final do loop.
+        """
+        evento_xml = _xml_evento_cancelamento(self.CHAVE)
+        xml_lote = (
+            f'<?xml version="1.0" encoding="utf-8"?>'
+            f'<retDistDFeInt versao="1.01" xmlns="http://www.portalfiscal.inf.br/nfe">'
+            f'<tpAmb>2</tpAmb>'
+            f'<cStat>138</cStat>'
+            f'<xMotivo>Documentos localizados</xMotivo>'
+            f'<ultNSU>{str(999).zfill(15)}</ultNSU>'
+            f'<maxNSU>{str(999).zfill(15)}</maxNSU>'
+            f'<loteDistDFeInt>'
+            f'<docZip NSU="{str(999).zfill(15)}" schema="procEventoNFe_v1.00.xsd">'
+            f'{_gz64(evento_xml)}'
+            f'</docZip>'
+            f'</loteDistDFeInt>'
+            f'</retDistDFeInt>'
+        )
+        self.svc.con.consulta_notas_cnpj.return_value = _mock_resposta(xml_lote)
+        self.svc.capturar_proximo_lote()
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.status, "CANCELADO")

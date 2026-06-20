@@ -810,3 +810,189 @@ class JWTFluxoTest(APITestCase):
     def test_refresh_invalido_retorna_401(self):
         res = self.client.post("/api/token/refresh/", {"refresh": "token-falso"})
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 12. ENDPOINT RECONCILIAR
+# ──────────────────────────────────────────────────────────────────────────────
+
+class ReconciliarEndpointTest(APITestCase):
+    """
+    GET /api/documentos/reconciliar/?cliente=<id>
+    Relatório de consistência: capturados vs. maxNSU disponível.
+    Permite ao contador verificar gaps antes do fechamento fiscal.
+    """
+
+    def setUp(self):
+        self.staff = make_staff(username="staff_rec")
+        self.operador = make_operator(username="op_rec")
+        self.cliente = make_cliente(cnpj="91234567000100", razao_social="Reconciliar LTDA")
+        self.nsu = make_nsu(self.cliente, tipo="NFE", ultimo=80, maximo=100)
+        self.doc = make_documento(self.cliente, chave="R" * 44)
+
+    def test_sem_auth_retorna_401(self):
+        res = self.client.get(f"/api/documentos/reconciliar/?cliente={self.cliente.pk}")
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_retorna_200_autenticado(self):
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.get(f"/api/documentos/reconciliar/?cliente={self.cliente.pk}")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_operador_pode_acessar(self):
+        self.client.force_authenticate(user=self.operador)
+        res = self.client.get(f"/api/documentos/reconciliar/?cliente={self.cliente.pk}")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_campos_obrigatorios_presentes(self):
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.get(f"/api/documentos/reconciliar/?cliente={self.cliente.pk}")
+        item = res.data[0]
+        for campo in ("cliente", "cliente_nome", "tipo_documento", "ultimo_nsu",
+                       "max_nsu", "capturados", "gap", "atualizado_em"):
+            self.assertIn(campo, item, f"Campo ausente na resposta: {campo}")
+
+    def test_gap_calculado_corretamente(self):
+        """gap = max_nsu - ultimo_nsu quando max > ultimo."""
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.get(f"/api/documentos/reconciliar/?cliente={self.cliente.pk}")
+        item = res.data[0]
+        self.assertEqual(item["ultimo_nsu"], 80)
+        self.assertEqual(item["max_nsu"], 100)
+        self.assertEqual(item["gap"], 20)
+
+    def test_capturados_reflete_documentos_reais(self):
+        """capturados deve contar exatamente os Documentos salvos no banco."""
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.get(f"/api/documentos/reconciliar/?cliente={self.cliente.pk}")
+        item = res.data[0]
+        self.assertEqual(item["capturados"], 1)
+
+    def test_gap_zero_quando_sincronizado(self):
+        self.nsu.ultimo_nsu = 100
+        self.nsu.save()
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.get(f"/api/documentos/reconciliar/?cliente={self.cliente.pk}")
+        item = res.data[0]
+        self.assertEqual(item["gap"], 0)
+
+    def test_sem_filtro_cliente_retorna_todos(self):
+        outro = make_cliente(cnpj="81234567000100", razao_social="Outro LTDA")
+        make_nsu(outro, tipo="CTE", ultimo=10, maximo=50)
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.get("/api/documentos/reconciliar/")
+        self.assertGreaterEqual(len(res.data), 2)
+
+    def test_cliente_nome_no_resultado(self):
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.get(f"/api/documentos/reconciliar/?cliente={self.cliente.pk}")
+        self.assertEqual(res.data[0]["cliente_nome"], self.cliente.razao_social)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 13. ENDPOINT CAPTURAR NFS-e DIRETA
+# ──────────────────────────────────────────────────────────────────────────────
+
+class CapturarNfseDiretaEndpointTest(APITestCase):
+    """
+    POST /api/clientes/{id}/capturar-nfse/
+    Fallback cirúrgico: busca NFS-e por Chave de Acesso (44 dígitos).
+    NUNCA chama SEFAZ real — tudo mockado.
+    """
+
+    CHAVE_VALIDA = "35260612345678000199550010000000010000000001"
+
+    def setUp(self):
+        self.staff = make_staff(username="staff_nfse")
+        self.operador = make_operator(username="op_nfse")
+        self.cliente = make_cliente(cnpj="71234567000100", razao_social="NFS-e Direta LTDA")
+        cert = Certificado.objects.create(
+            cliente=self.cliente,
+            nome_arquivo="cert.pfx",
+            validade=datetime.date(2027, 12, 31),
+            ativo=True,
+        )
+        cert.conteudo_criptografado = b"pfx-fake"
+        cert.senha_criptografada = b"senha-fake"
+        cert.save()
+
+    def _url(self):
+        return f"/api/clientes/{self.cliente.pk}/capturar-nfse/"
+
+    def _patch_chain(self, resultado_str="SUCESSO"):
+        from unittest.mock import MagicMock, patch
+        mock_svc = MagicMock()
+        mock_svc.capturar_por_chave_direta.return_value = resultado_str
+        return [
+            patch("fiscal.services.cofre.decrypt_a1", return_value=b"senha-decifrada"),
+            patch("fiscal.conectores.fabrica.inicializar_cliente_sefaz", return_value=MagicMock()),
+            patch("fiscal.conectores.nfse.NFSeADNCapturaService", return_value=mock_svc),
+        ]
+
+    def _with_patches(self, resultado_str="SUCESSO"):
+        from contextlib import ExitStack
+        stack = ExitStack()
+        for p in self._patch_chain(resultado_str):
+            stack.enter_context(p)
+        return stack
+
+    def test_sem_auth_retorna_401(self):
+        res = self.client.post(self._url(), {"chave_acesso": self.CHAVE_VALIDA})
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_operador_proibido_retorna_403(self):
+        self.client.force_authenticate(user=self.operador)
+        res = self.client.post(self._url(), {"chave_acesso": self.CHAVE_VALIDA})
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_chave_com_menos_de_44_digitos_retorna_400(self):
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.post(self._url(), {"chave_acesso": "123"})
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_chave_com_mais_de_44_digitos_retorna_400(self):
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.post(self._url(), {"chave_acesso": "1" * 45})
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cliente_sem_certificado_retorna_422(self):
+        cliente_sem_cert = make_cliente(cnpj="61234567000100", razao_social="Sem Cert LTDA")
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.post(
+            f"/api/clientes/{cliente_sem_cert.pk}/capturar-nfse/",
+            {"chave_acesso": self.CHAVE_VALIDA},
+        )
+        self.assertEqual(res.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    def test_sucesso_retorna_200(self):
+        self.client.force_authenticate(user=self.staff)
+        with self._with_patches("SUCESSO"):
+            res = self.client.post(self._url(), {"chave_acesso": self.CHAVE_VALIDA})
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res.data["sucesso"])
+
+    def test_nota_nao_encontrada_retorna_502(self):
+        self.client.force_authenticate(user=self.staff)
+        with self._with_patches("NOTA_NAO_ENCONTRADA"):
+            res = self.client.post(self._url(), {"chave_acesso": self.CHAVE_VALIDA})
+        self.assertEqual(res.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertFalse(res.data["sucesso"])
+
+    def test_erro_conexao_retorna_502(self):
+        self.client.force_authenticate(user=self.staff)
+        with self._with_patches("ERRO_CONEXAO"):
+            res = self.client.post(self._url(), {"chave_acesso": self.CHAVE_VALIDA})
+        self.assertEqual(res.status_code, status.HTTP_502_BAD_GATEWAY)
+
+    def test_resposta_contem_mensagem(self):
+        self.client.force_authenticate(user=self.staff)
+        with self._with_patches("SUCESSO"):
+            res = self.client.post(self._url(), {"chave_acesso": self.CHAVE_VALIDA})
+        self.assertIn("mensagem", res.data)
+
+    def test_excecao_no_conector_retorna_502(self):
+        from unittest.mock import patch
+        self.client.force_authenticate(user=self.staff)
+        with patch("fiscal.services.cofre.decrypt_a1", side_effect=RuntimeError("Fernet key inválida")):
+            res = self.client.post(self._url(), {"chave_acesso": self.CHAVE_VALIDA})
+        self.assertEqual(res.status_code, status.HTTP_502_BAD_GATEWAY)
