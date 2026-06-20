@@ -234,9 +234,11 @@ class NFSeADNCapturaService:
             max_nsu = ult_nsu + 1
 
         if not lote_dfe:
-            # Fila vazia: nao avanca o ponteiro de NSU (ADN nao retorna ultNSU neste caso)
+            # ADN confirmou fila vazia: sincroniza max_nsu para evitar
+            # loop eterno quando ultimo_nsu < max_nsu por gap residual.
+            controle.max_nsu = controle.ultimo_nsu
             controle.atualizado_em = timezone.now()
-            controle.save(update_fields=['atualizado_em'])
+            controle.save(update_fields=['max_nsu', 'atualizado_em'])
             logger.info(
                 'ADN NFS-e fila vazia [%s] status=%s',
                 self.cliente.cnpj, payload.get('StatusProcessamento', '?'),

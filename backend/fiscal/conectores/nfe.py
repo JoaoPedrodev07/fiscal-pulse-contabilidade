@@ -83,6 +83,9 @@ class NFeCapturaService:
             c_stat = c_stat_element.text
 
             if c_stat == "137":
+                # SEFAZ confirmou fila vazia: sincroniza max_nsu para evitar
+                # loop eterno quando ultimo_nsu < max_nsu por gap residual.
+                controle.max_nsu = controle.ultimo_nsu
                 controle.atualizado_em = timezone.now()
                 controle.save()
                 return "VAZIO_AGUARDAR_1H"
