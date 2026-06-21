@@ -10,10 +10,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 function CaptaFiscalLogo({ size = 32 }: { size?: number }) {
+  const h = Math.round((size * 44) / 40);
   return (
-    <svg width={size} height={size} viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-      <rect width="80" height="80" rx="18" fill="#2563EB" />
-      <polyline points="28,36 34,42 52,24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+    <svg width={size} height={h} viewBox="0 0 40 44" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+      <path d="M20 2 L38 9 Q40 10 40 11.5 L40 25 Q40 38 20 44 Q0 38 0 25 L0 11.5 Q0 10 2 9 Z" fill="#2563EB" />
+      <polyline points="10,23 16,29 30,16" fill="none" stroke="#fff" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
