@@ -2,7 +2,7 @@ import datetime
 import re
 
 from rest_framework import serializers
-from .models import Cliente, Certificado, ControleNSU, Documento, Escritorio, Xml, LogCaptura, LogAuditoriaNSU, Manifestacao
+from .models import Cliente, Certificado, ControleNSU, Documento, Escritorio, Xml, LogCaptura, LogAuditoriaNSU, Manifestacao, NotaTratada
 
 
 class EscritorioSerializer(serializers.ModelSerializer):
@@ -220,3 +220,23 @@ class ManifestacaoSerializer(serializers.ModelSerializer):
             'tipo_evento', 'protocolo', 'sucesso', 'mensagem', 'enviado_em',
         ]
         read_only_fields = ['id', 'enviado_em']
+
+
+class NotaTratadaSerializer(serializers.ModelSerializer):
+    documento_chave = serializers.CharField(source='documento.chave', read_only=True)
+    cliente_id      = serializers.IntegerField(source='documento.cliente_id', read_only=True)
+    cliente_nome    = serializers.CharField(source='documento.cliente.razao_social', read_only=True)
+    papel_nfse      = serializers.CharField(source='documento.papel_nfse', read_only=True)
+
+    class Meta:
+        model = NotaTratada
+        fields = [
+            'id', 'documento', 'documento_chave', 'cliente_id', 'cliente_nome', 'papel_nfse',
+            'numero_nfse', 'data_competencia', 'data_processamento',
+            'emitente_cnpj', 'emitente_nome', 'tomador_doc', 'tomador_nome',
+            'codigo_tributo', 'descricao_servico', 'regime_trib',
+            'valor_servico', 'valor_liquido',
+            'ret_pis', 'ret_cofins', 'ret_csll', 'ret_irrf', 'ret_inss',
+            'parecer', 'chave_substituta', 'processado_em',
+        ]
+        read_only_fields = fields

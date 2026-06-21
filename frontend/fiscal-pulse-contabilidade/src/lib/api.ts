@@ -25,6 +25,8 @@ import type {
   LogCaptura,
   NovoClienteInput,
   NovoCertificadoInput,
+  NotaTratada,
+  NotaTratadaFilters,
   Paginated,
   ReconciliacaoItem,
   UserProfile,
@@ -441,6 +443,34 @@ function triggerDownload(blob: Blob, filename: string) {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }, 1000);
+}
+
+// ----------------------------- NOTAS TRATADAS -----------------------------
+
+// GET /api/notas-tratadas/?...
+export async function listNotasTratadas(
+  filters: NotaTratadaFilters,
+): Promise<Paginated<NotaTratada>> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v !== undefined && v !== "" && v !== null) params.set(k, String(v));
+  });
+  return http<Paginated<NotaTratada>>(`/api/notas-tratadas/?${params.toString()}`);
+}
+
+// GET /api/notas-tratadas/exportar/?... — baixa planilha Excel
+export async function exportarRelatorioNfse(filters: NotaTratadaFilters): Promise<void> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v !== undefined && v !== "" && v !== null) params.set(k, String(v));
+  });
+  const res = await fetch(`${API_BASE_URL}/api/notas-tratadas/exportar/?${params.toString()}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Erro ${res.status} ao exportar relatório`);
+  const blob = await res.blob();
+  const comp = filters.data_competencia ?? "todas";
+  triggerDownload(blob, `relatorio_nfse_${comp.replace('/', '-')}.xlsx`);
 }
 
 export { clientUsers };

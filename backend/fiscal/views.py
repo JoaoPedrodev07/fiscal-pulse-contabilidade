@@ -9,9 +9,10 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.filters import SearchFilter
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 
-from .models import Cliente, Certificado, ControleNSU, Documento, Escritorio, LogCaptura, LogAuditoriaNSU, Manifestacao
+from .models import Cliente, Certificado, ControleNSU, Documento, Escritorio, LogCaptura, LogAuditoriaNSU, Manifestacao, NotaTratada
 from .serializers import (
     ClienteSerializer,
     CertificadoSerializer,
@@ -23,6 +24,7 @@ from .serializers import (
     LogCapturaSerializer,
     LogAuditoriaNSUSerializer,
     ManifestacaoSerializer,
+    NotaTratadaSerializer,
 )
 from .filters import DocumentoFilter
 from .serializers import EscritorioSerializer
@@ -355,3 +357,111 @@ class ManifestacaoViewSet(viewsets.ReadOnlyModelViewSet):
             qs, self.request.user,
             campo_escritorio='documento__cliente__escritorio_id',
         )
+
+
+class NotaTratadaViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    GET /api/notas-tratadas/             — lista paginada com filtros
+    GET /api/notas-tratadas/{id}/        — detalhe
+    GET /api/notas-tratadas/exportar/    — download Excel (.xlsx)
+
+    Filtros disponíveis: cliente, emitente_cnpj, data_competencia, parecer, papel_nfse
+    """
+    serializer_class = NotaTratadaSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter]
+    filterset_fields = ['emitente_cnpj', 'data_competencia', 'parecer']
+    search_fields = ['emitente_nome', 'tomador_nome', 'numero_nfse']
+
+    def get_queryset(self):
+        qs = NotaTratada.objects.select_related('documento', 'documento__cliente').all()
+        qs = _qs_por_escritorio(qs, self.request.user, campo_escritorio='documento__cliente__escritorio_id')
+
+        cliente_id = self.request.query_params.get('cliente')
+        papel = self.request.query_params.get('papel_nfse')
+        if cliente_id:
+            qs = qs.filter(documento__cliente_id=cliente_id)
+        if papel:
+            qs = qs.filter(documento__papel_nfse=papel)
+        return qs
+
+    @action(detail=False, methods=['get'], url_path='exportar')
+    def exportar(self, request):
+        """GET /api/notas-tratadas/exportar/ — retorna planilha Excel com pareceres fiscais."""
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+
+        qs = self.filter_queryset(self.get_queryset())
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = 'Notas Fiscais'
+
+        cabecalhos = [
+            'Nº NFS-e', 'Competência', 'Data Proc.', 'CNPJ Emitente', 'Emitente',
+            'Doc Tomador', 'Tomador', 'Cód. Tributo', 'Serviço', 'Regime Trib.',
+            'Valor Serviço', 'Valor Líquido', 'Ret. PIS', 'Ret. COFINS',
+            'Ret. CSLL', 'Ret. IRRF', 'Ret. INSS', 'Parecer', 'Chave Substituta',
+        ]
+
+        header_fill = PatternFill('solid', fgColor='2563EB')
+        header_font = Font(bold=True, color='FFFFFF')
+        for col, titulo in enumerate(cabecalhos, start=1):
+            cell = ws.cell(row=1, column=col, value=titulo)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center')
+
+        PARECER_CORES = {
+            'Válida': 'D1FAE5',
+            'Válida (DIVERGÊNCIA RETENÇÃO)': 'FEF3C7',
+            'Cancelada': 'FEE2E2',
+            'Substituída': 'E0E7FF',
+        }
+
+        for row_idx, nota in enumerate(qs.iterator(), start=2):
+            linha = [
+                nota.numero_nfse,
+                nota.data_competencia,
+                nota.data_processamento,
+                nota.emitente_cnpj,
+                nota.emitente_nome,
+                nota.tomador_doc,
+                nota.tomador_nome,
+                nota.codigo_tributo,
+                nota.descricao_servico,
+                nota.regime_trib,
+                float(nota.valor_servico) if nota.valor_servico is not None else None,
+                float(nota.valor_liquido) if nota.valor_liquido is not None else None,
+                float(nota.ret_pis)    if nota.ret_pis    is not None else None,
+                float(nota.ret_cofins) if nota.ret_cofins is not None else None,
+                float(nota.ret_csll)   if nota.ret_csll   is not None else None,
+                float(nota.ret_irrf)   if nota.ret_irrf   is not None else None,
+                float(nota.ret_inss)   if nota.ret_inss   is not None else None,
+                nota.parecer,
+                nota.chave_substituta,
+            ]
+            for col_idx, valor in enumerate(linha, start=1):
+                ws.cell(row=row_idx, column=col_idx, value=valor)
+
+            cor = PARECER_CORES.get(nota.parecer)
+            if cor:
+                fill = PatternFill('solid', fgColor=cor)
+                for col_idx in range(1, len(cabecalhos) + 1):
+                    ws.cell(row=row_idx, column=col_idx).fill = fill
+
+        for col in ws.columns:
+            max_len = max((len(str(c.value or '')) for c in col), default=10)
+            ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 50)
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        competencia = request.query_params.get('data_competencia', 'todas')
+        response = HttpResponse(
+            buf.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = f'attachment; filename="relatorio_nfse_{competencia}.xlsx"'
+        return response

@@ -119,3 +119,48 @@ export interface NovoCertificadoInput {
   arquivo: File;
   senha: string;
 }
+
+export type ParecerNfse =
+  | "Válida"
+  | "Válida (DIVERGÊNCIA RETENÇÃO)"
+  | "Cancelada"
+  | "Substituída";
+
+export interface NotaTratada {
+  id: number;
+  documento: number;
+  documento_chave: string;
+  cliente_id: number;
+  cliente_nome: string;
+  papel_nfse: string;
+  numero_nfse: string;
+  data_competencia: string;   // "MM/AAAA"
+  data_processamento: string; // "DD/MM/AAAA"
+  emitente_cnpj: string;
+  emitente_nome: string;
+  tomador_doc: string;
+  tomador_nome: string;
+  codigo_tributo: string;
+  descricao_servico: string;
+  regime_trib: string;
+  valor_servico: number | null;
+  valor_liquido: number | null;
+  ret_pis: number | null;
+  ret_cofins: number | null;
+  ret_csll: number | null;
+  ret_irrf: number | null;
+  ret_inss: number | null;
+  parecer: ParecerNfse;
+  chave_substituta: string;
+  processado_em: string;
+}
+
+export interface NotaTratadaFilters {
+  cliente?: string;
+  emitente_cnpj?: string;
+  data_competencia?: string; // "MM/AAAA"
+  parecer?: string;
+  papel_nfse?: string;
+  search?: string;
+  page?: number;
+}

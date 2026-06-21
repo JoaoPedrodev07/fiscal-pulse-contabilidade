@@ -34,7 +34,8 @@ from datetime import date
 from django.db import transaction
 from django.utils import timezone
 
-from fiscal.models import ControleNSU, Documento, LogAuditoriaNSU, Xml
+from fiscal.models import ControleNSU, Documento, LogAuditoriaNSU, NotaTratada, Xml
+from fiscal.services.tratamento_nfse import extrair_dados_nfse
 
 logger = logging.getLogger(__name__)
 
@@ -364,8 +365,10 @@ class NFSeADNCapturaService:
             else:
                 Xml.objects.create(documento=documento, conteudo=xml_puro)
                 self._log_auditoria(nsu_doc, 'SALVO', chave)
+                _salvar_nota_tratada(documento, xml_puro, status, papel)
             if not criado and not Xml.objects.filter(documento=documento).exists():
                 Xml.objects.create(documento=documento, conteudo=xml_puro)
+                _salvar_nota_tratada(documento, xml_puro, status, papel)
 
         except Exception as e:
             logger.error('Erro ao persistir NFS-e chave %s NSU %s: %s', chave[:10], nsu_doc, e)
@@ -426,3 +429,31 @@ class NFSeADNCapturaService:
                 pass
 
         return emitente, valor, data_emissao, competencia
+
+
+# ── Integração tratamento fiscal ───────────────────────────────────────────────
+
+def _salvar_nota_tratada(documento: Documento, xml_puro: str, status: str, papel: str) -> None:
+    """Cria/atualiza NotaTratada após persistir XML. Propaga substituição na cadeia."""
+    try:
+        dados = extrair_dados_nfse(xml_puro, status, papel)
+        if not dados:
+            return
+        chave_substituida = dados.pop('chave_que_esta_substitui', '')
+        if chave_substituida:
+            try:
+                nota_antiga = Documento.objects.get(chave=chave_substituida)
+                nota_antiga.status = 'SUBSTITUIDO'
+                nota_antiga.save(update_fields=['status'])
+                NotaTratada.objects.filter(documento=nota_antiga).update(
+                    parecer='Substituída',
+                    chave_substituta=documento.chave,
+                )
+            except Documento.DoesNotExist:
+                pass
+        NotaTratada.objects.update_or_create(
+            documento=documento,
+            defaults=dados,
+        )
+    except Exception as exc:
+        logger.error('Erro ao salvar NotaTratada doc %s: %s', documento.id, exc)

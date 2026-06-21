@@ -313,3 +313,56 @@ class LogAuditoriaNSU(models.Model):
 
     def __str__(self):
         return f'{self.cliente} / {self.tipo_documento} NSU {self.nsu} → {self.resultado}'
+
+
+class NotaTratada(models.Model):
+    """
+    Dados fiscais estruturados extraídos do XML de uma NFS-e.
+    Criada automaticamente pelo conector após salvar o XML.
+    É a fonte de dados para relatórios, pareceres e exportação em planilha.
+    """
+    PARECER_CHOICES = [
+        ('Válida',                      'Válida'),
+        ('Válida (DIVERGÊNCIA RETENÇÃO)', 'Válida (Divergência de Retenção)'),
+        ('Cancelada',                   'Cancelada'),
+        ('Substituída',                 'Substituída'),
+    ]
+
+    documento = models.OneToOneField(
+        Documento,
+        on_delete=models.CASCADE,
+        related_name='nota_tratada',
+        verbose_name='Documento',
+    )
+    numero_nfse        = models.CharField(max_length=20,  blank=True, verbose_name='Número NFSe')
+    data_competencia   = models.CharField(max_length=7,   blank=True, verbose_name='Competência (MM/AAAA)')
+    data_processamento = models.CharField(max_length=10,  blank=True, verbose_name='Data Processamento')
+    emitente_cnpj      = models.CharField(max_length=14,  blank=True, db_index=True, verbose_name='CNPJ Emitente')
+    emitente_nome      = models.CharField(max_length=255, blank=True, verbose_name='Emitente Nome')
+    tomador_doc        = models.CharField(max_length=14,  blank=True, verbose_name='CNPJ/CPF Tomador')
+    tomador_nome       = models.CharField(max_length=255, blank=True, verbose_name='Tomador Nome')
+    codigo_tributo     = models.CharField(max_length=20,  blank=True, verbose_name='Código Tributo Nacional')
+    descricao_servico  = models.TextField(blank=True,                 verbose_name='Descrição do Serviço')
+    regime_trib        = models.CharField(max_length=80,  blank=True, verbose_name='Regime Especial Tributação')
+    valor_servico      = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True, verbose_name='Valor Serviço (R$)')
+    valor_liquido      = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True, verbose_name='Valor Líquido (R$)')
+    ret_pis            = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True, verbose_name='Ret. PIS (R$)')
+    ret_cofins         = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True, verbose_name='Ret. COFINS (R$)')
+    ret_csll           = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True, verbose_name='Ret. CSLL (R$)')
+    ret_irrf           = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True, verbose_name='Ret. IRRF (R$)')
+    ret_inss           = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True, verbose_name='Ret. INSS (R$)')
+    parecer            = models.CharField(max_length=50, choices=PARECER_CHOICES, verbose_name='Parecer Fiscal')
+    # Chave da nota que SUBSTITUIU esta (preenchida quando esta nota é marcada como Substituída)
+    chave_substituta   = models.CharField(max_length=50, blank=True, verbose_name='Chave Substituta')
+    processado_em      = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Nota Tratada'
+        verbose_name_plural = 'Notas Tratadas'
+        indexes = [
+            models.Index(fields=['emitente_cnpj', 'data_competencia'], name='nota_trat_cnpj_comp_idx'),
+        ]
+        ordering = ['-processado_em']
+
+    def __str__(self):
+        return f'NotaTratada {self.numero_nfse} — {self.emitente_cnpj} [{self.parecer}]'

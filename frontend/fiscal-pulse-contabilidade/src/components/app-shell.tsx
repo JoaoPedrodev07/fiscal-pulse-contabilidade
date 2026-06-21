@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  BarChart2,
   Users,
 } from "lucide-react";
 
@@ -24,6 +25,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: "/dashboard",  label: "Dashboard",   icon: LayoutDashboard },
   { to: "/documentos", label: "Documentos",  icon: FileText },
+  { to: "/relatorios", label: "Relatórios",  icon: BarChart2,  staffOnly: true },
   { to: "/captura",    label: "Capturar",    icon: Download,   staffOnly: true },
   { to: "/carteira",   label: "Clientes",    icon: Users,      staffOnly: true },
 ];
