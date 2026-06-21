@@ -1,5 +1,15 @@
 from rest_framework import serializers
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+
 from .models import User
+
+
+class TokenObtainPairPTSerializer(TokenObtainPairSerializer):
+    """SimpleJWT com mensagens de erro em português."""
+
+    default_error_messages = {
+        'no_active_account': 'Credenciais incorretas. Verifique o usuário e a senha.',
+    }
 
 
 class UserCreateSerializer(serializers.ModelSerializer):

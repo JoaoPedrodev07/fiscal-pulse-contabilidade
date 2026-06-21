@@ -1,14 +1,78 @@
 import re
 
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, exceptions
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from rest_framework.response import Response
-from rest_framework.views import APIView
+from rest_framework.views import APIView, exception_handler as drf_exception_handler
+from rest_framework_simplejwt.views import TokenObtainPairView
 
 from fiscal.models import Escritorio
 from .models import User
-from .serializers import UserCreateSerializer, UserSerializer
+from .serializers import TokenObtainPairPTSerializer, UserCreateSerializer, UserSerializer
+
+
+# ── Mensagens de erro em português ────────────────────────────────────────────
+
+_MSG_PT = {
+    'authentication_failed':          'Credenciais incorretas. Verifique o usuário e a senha.',
+    'not_authenticated':              'Autenticação necessária. Faça login para continuar.',
+    'permission_denied':              'Você não tem permissão para realizar esta ação.',
+    'not_found':                      'Recurso não encontrado.',
+    'method_not_allowed':             'Método não permitido.',
+    'not_acceptable':                 'Formato de resposta não suportado.',
+    'unsupported_media_type':         'Tipo de mídia não suportado.',
+    'throttled':                      'Muitas requisições. Aguarde um momento antes de tentar novamente.',
+    'invalid':                        'Dados inválidos.',
+    'token_not_valid':                'Token inválido ou expirado. Faça login novamente.',
+}
+
+
+def exception_handler_pt(exc, context):
+    """
+    Substitui as mensagens de erro padrão do DRF por versões em português.
+    Registrar em settings.py: REST_FRAMEWORK['EXCEPTION_HANDLER'].
+    """
+    response = drf_exception_handler(exc, context)
+    if response is None:
+        return None
+
+    if isinstance(exc, exceptions.AuthenticationFailed):
+        response.data = {'detail': _MSG_PT['authentication_failed']}
+    elif isinstance(exc, exceptions.NotAuthenticated):
+        response.data = {'detail': _MSG_PT['not_authenticated']}
+    elif isinstance(exc, exceptions.PermissionDenied):
+        response.data = {'detail': _MSG_PT['permission_denied']}
+    elif isinstance(exc, exceptions.NotFound):
+        response.data = {'detail': _MSG_PT['not_found']}
+    elif isinstance(exc, exceptions.MethodNotAllowed):
+        response.data = {'detail': _MSG_PT['method_not_allowed']}
+    elif isinstance(exc, exceptions.Throttled):
+        response.data = {'detail': _MSG_PT['throttled']}
+    elif response.status_code == 401:
+        # Pega qualquer outro 401 (ex: token expirado do SimpleJWT)
+        detail = response.data.get('detail', '')
+        english_401_msgs = {
+            'No active account found with the given credentials',
+            'Given token not valid for any token type',
+            'Token is invalid or expired',
+            'Token has wrong type',
+            'User not found',
+        }
+        if str(detail) in english_401_msgs:
+            response.data['detail'] = _MSG_PT.get(
+                'token_not_valid' if 'token' in str(detail).lower() else 'authentication_failed',
+                _MSG_PT['authentication_failed'],
+            )
+
+    return response
+
+
+# ── Views ──────────────────────────────────────────────────────────────────────
+
+class TokenObtainPairPTView(TokenObtainPairView):
+    """POST /api/token/ com mensagens de erro em português."""
+    serializer_class = TokenObtainPairPTSerializer
 
 
 class UserViewSet(viewsets.ModelViewSet):

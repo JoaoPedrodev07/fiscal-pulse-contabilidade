@@ -29,20 +29,38 @@ export const Route = createFileRoute("/login")({
 function classifyError(err: unknown): string {
   if (!(err instanceof Error)) return "Ocorreu um erro inesperado. Tente novamente.";
 
-  // 401 vem como "Request failed: 401" de http() em api.ts
-  if (err.message.includes("401")) {
+  const msg = err.message.toLowerCase();
+
+  // Falha de autenticação — captura mensagem do backend (PT ou EN como fallback)
+  const isAuthError =
+    msg.includes("401") ||
+    msg.includes("credenciais incorretas") ||
+    msg.includes("no active account") ||
+    msg.includes("given credentials") ||
+    msg.includes("user not found") ||
+    msg.includes("password") ||
+    msg.includes("usuário ou senha");
+
+  if (isAuthError) {
     return "Usuário ou senha inválidos. Verifique suas credenciais.";
   }
 
-  // TypeError é lançado pelo próprio fetch quando não consegue conectar
+  // Token expirado (sessão ativa que expirou)
+  if (msg.includes("token") && (msg.includes("invalid") || msg.includes("expired") || msg.includes("expirado"))) {
+    return "Sua sessão expirou. Faça login novamente.";
+  }
+
+  // Problema de rede — TypeError lançado pelo fetch antes de chegar ao servidor
   if (
     err instanceof TypeError ||
-    err.message.toLowerCase().includes("fetch") ||
-    err.message.toLowerCase().includes("network")
+    msg.includes("fetch") ||
+    msg.includes("network") ||
+    msg.includes("failed to fetch")
   ) {
     return "Não foi possível conectar ao servidor. Verifique sua conexão de rede e tente novamente.";
   }
 
+  // Erro com mensagem em português do backend — exibe diretamente
   return err.message || "Ocorreu um erro inesperado. Tente novamente.";
 }
 
