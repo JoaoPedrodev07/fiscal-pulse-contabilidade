@@ -65,11 +65,11 @@ const PAGE_SIZE = 50;
 const ALL = "__all__";
 
 const STATUS_PILL_MAP: Record<string, { bg: string; color: string }> = {
-  CAPTURADO:   { bg: "#EFF6FF", color: "#1D4ED8" },
+  CAPTURADO:   { bg: "#F1F5F9", color: "#64748B" },
   MANIFESTADO: { bg: "#FEF9C3", color: "#92400E" },
   COMPLETO:    { bg: "#DCFCE7", color: "#15803D" },
   CANCELADO:   { bg: "#FEE2E2", color: "#B91C1C" },
-  SUBSTITUIDO: { bg: "#F3F4F6", color: "#374151" },
+  SUBSTITUIDO: { bg: "#F1F5F9", color: "#64748B" },
 };
 
 function DocumentosPage() {
@@ -283,11 +283,9 @@ function DocumentosPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ALL}>Todos os status</SelectItem>
-                  <SelectItem value="CAPTURADO">Capturado</SelectItem>
                   <SelectItem value="MANIFESTADO">Manifestado</SelectItem>
                   <SelectItem value="COMPLETO">Autorizada</SelectItem>
                   <SelectItem value="CANCELADO">Cancelada</SelectItem>
-                  <SelectItem value="SUBSTITUIDO">Substituída</SelectItem>
                 </SelectContent>
               </Select>
             </FilterField>
