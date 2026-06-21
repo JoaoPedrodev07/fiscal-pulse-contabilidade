@@ -73,7 +73,12 @@ def _regime_trib(codigo: str) -> str:
     return mapa.get(codigo, codigo)
 
 
-def extrair_dados_nfse(xml_content: str, status: str, papel_nfse: str) -> dict:
+def extrair_dados_nfse(
+    xml_content: str,
+    status: str,
+    papel_nfse: str,
+    root: ET.Element | None = None,
+) -> dict:
     """
     Extrai dados fiscais de um XML NFS-e ADN e retorna dict com campos tratados.
 
@@ -81,15 +86,17 @@ def extrair_dados_nfse(xml_content: str, status: str, papel_nfse: str) -> dict:
         xml_content: conteúdo XML completo como string UTF-8
         status:      status já determinado pelo conector (COMPLETO/CANCELADO/SUBSTITUIDO)
         papel_nfse:  TOMADOR ou EMITENTE (já determinado pelo conector)
+        root:        árvore ET já parseada — evita re-parse quando disponível
 
     Returns dict com todas as colunas de NotaTratada + 'parecer'.
     Retorna dict vazio em caso de XML inválido.
     """
-    try:
-        root = ET.fromstring(xml_content.encode('utf-8') if isinstance(xml_content, str) else xml_content)
-    except ET.ParseError as exc:
-        logger.warning('tratamento_nfse: XML inválido — %s', exc)
-        return {}
+    if root is None:
+        try:
+            root = ET.fromstring(xml_content.encode('utf-8') if isinstance(xml_content, str) else xml_content)
+        except ET.ParseError as exc:
+            logger.warning('tratamento_nfse: XML inválido — %s', exc)
+            return {}
 
     t = lambda path: _text(root, path)
 

@@ -1,5 +1,6 @@
 Django==5.2.7
 openpyxl>=3.1
+xlsxwriter>=3.2
 pandas>=2.2
 cryptography
 requests

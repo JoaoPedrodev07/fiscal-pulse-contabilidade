@@ -177,7 +177,8 @@ class Documento(models.Model):
     class Meta:
         ordering = ['-data_emissao']
         indexes = [
-            models.Index(fields=['cliente', 'competencia'], name='doc_cliente_competencia_idx'),
+            models.Index(fields=['cliente', 'competencia'],     name='doc_cliente_competencia_idx'),
+            models.Index(fields=['cliente', 'tipo_documento'],  name='doc_cliente_tipo_idx'),
         ]
         verbose_name = 'Documento'
         verbose_name_plural = 'Documentos'

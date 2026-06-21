@@ -365,10 +365,10 @@ class NFSeADNCapturaService:
             else:
                 Xml.objects.create(documento=documento, conteudo=xml_puro)
                 self._log_auditoria(nsu_doc, 'SALVO', chave)
-                _salvar_nota_tratada(documento, xml_puro, status, papel)
+                _salvar_nota_tratada(documento, xml_puro, status, papel, root=root)
             if not criado and not Xml.objects.filter(documento=documento).exists():
                 Xml.objects.create(documento=documento, conteudo=xml_puro)
-                _salvar_nota_tratada(documento, xml_puro, status, papel)
+                _salvar_nota_tratada(documento, xml_puro, status, papel, root=root)
 
         except Exception as e:
             logger.error('Erro ao persistir NFS-e chave %s NSU %s: %s', chave[:10], nsu_doc, e)
@@ -433,10 +433,16 @@ class NFSeADNCapturaService:
 
 # ── Integração tratamento fiscal ───────────────────────────────────────────────
 
-def _salvar_nota_tratada(documento: Documento, xml_puro: str, status: str, papel: str) -> None:
+def _salvar_nota_tratada(
+    documento: Documento,
+    xml_puro: str,
+    status: str,
+    papel: str,
+    root: ET.Element | None = None,
+) -> None:
     """Cria/atualiza NotaTratada após persistir XML. Propaga substituição na cadeia."""
     try:
-        dados = extrair_dados_nfse(xml_puro, status, papel)
+        dados = extrair_dados_nfse(xml_puro, status, papel, root=root)
         if not dados:
             return
         chave_substituida = dados.pop('chave_que_esta_substitui', '')

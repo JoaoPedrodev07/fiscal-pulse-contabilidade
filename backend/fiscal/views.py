@@ -2,8 +2,9 @@ import io
 import os
 import zipfile
 
+from django.db.models import Count, IntegerField, OuterRef, Subquery
 from django.db.models.deletion import ProtectedError
-from django.http import HttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -227,63 +228,84 @@ class DocumentoViewSet(viewsets.ReadOnlyModelViewSet):
         GET /api/documentos/reconciliar/?cliente=<id>
 
         Relatório de consistência: capturados vs. maxNSU disponível na SEFAZ/ADN.
-        Permite ao contador verificar gaps antes do fechamento fiscal.
-
-        Campos por tipo de documento:
-          - ultimo_nsu: ponteiro atual do banco
-          - max_nsu: total disponível na fonte
-          - capturados: documentos salvos
-          - gap: NSUs ainda não processados (max_nsu - ultimo_nsu)
+        Uma query agregada substitui o N+1 anterior (1 COUNT por ControleNSU).
         """
         cliente_id = request.query_params.get('cliente')
-        qs = ControleNSU.objects.select_related('cliente').all()
+
+        doc_count = (
+            Documento.objects
+            .filter(cliente=OuterRef('cliente'), tipo_documento=OuterRef('tipo_documento'))
+            .values('cliente')
+            .annotate(total=Count('id'))
+            .values('total')
+        )
+
+        qs = (
+            ControleNSU.objects
+            .select_related('cliente')
+            .annotate(capturados=Subquery(doc_count, output_field=IntegerField()))
+        )
         if cliente_id:
             qs = qs.filter(cliente_id=cliente_id)
 
-        resultado = []
-        for c in qs:
-            capturados = Documento.objects.filter(
-                cliente=c.cliente,
-                tipo_documento=c.tipo_documento,
-            ).count()
-            resultado.append({
+        resultado = [
+            {
                 'cliente':        c.cliente_id,
                 'cliente_nome':   c.cliente.razao_social,
                 'tipo_documento': c.tipo_documento,
                 'ultimo_nsu':     c.ultimo_nsu,
                 'max_nsu':        c.max_nsu,
-                'capturados':     capturados,
+                'capturados':     c.capturados or 0,
                 'gap':            max(0, c.max_nsu - c.ultimo_nsu),
                 'atualizado_em':  c.atualizado_em,
-            })
-
+            }
+            for c in qs
+        ]
         return Response(resultado)
 
     @action(detail=False, methods=['get'], url_path='exportar_lote')
     def exportar_lote(self, request):
-        """GET /api/documentos/exportar_lote/?cliente=<id>&competencia=<AAAA-MM>"""
-        cliente_id = request.query_params.get('cliente')
+        """
+        GET /api/documentos/exportar_lote/?cliente=<id>&competencia=<AAAA-MM>
+
+        Exige filtro de competência para limitar o volume por requisição.
+        Usa iterator(chunk_size) para não carregar o queryset inteiro na RAM.
+        O ZIP é montado em memória (BytesIO) e enviado via StreamingHttpResponse
+        em chunks de 64 KB — libera memória progressivamente no cliente.
+        """
+        cliente_id  = request.query_params.get('cliente')
         competencia = request.query_params.get('competencia')
+
+        if not competencia:
+            return Response(
+                {'detail': 'Parâmetro "competencia" (AAAA-MM) é obrigatório para exportação em lote.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         qs = self.get_queryset().select_related('xml')
         if cliente_id:
             qs = qs.filter(cliente_id=cliente_id)
-        if competencia:
-            qs = qs.filter(competencia=competencia)
+        qs = qs.filter(competencia=competencia)
 
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
-            for doc in qs:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
+            for doc in qs.iterator(chunk_size=100):
                 try:
                     zf.writestr(f'{doc.chave}.xml', doc.xml.conteudo)
                 except Documento.xml.RelatedObjectDoesNotExist:
                     pass
-        buffer.seek(0)
+        buf.seek(0)
 
-        sufixo = competencia if competencia else 'todos'
-        label = cliente_id if cliente_id else 'todos'
-        filename = f'documentos_{label}_{sufixo}.zip'
-        response = HttpResponse(buffer.read(), content_type='application/zip')
+        def _stream(buffer, chunk=65536):
+            while True:
+                data = buffer.read(chunk)
+                if not data:
+                    break
+                yield data
+
+        label    = cliente_id if cliente_id else 'todos'
+        filename = f'documentos_{label}_{competencia}.zip'
+        response = StreamingHttpResponse(_stream(buf), content_type='application/zip')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
 
@@ -387,15 +409,15 @@ class NotaTratadaViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='exportar')
     def exportar(self, request):
-        """GET /api/notas-tratadas/exportar/ — retorna planilha Excel com pareceres fiscais."""
-        import openpyxl
-        from openpyxl.styles import Font, PatternFill, Alignment
+        """
+        GET /api/notas-tratadas/exportar/ — planilha Excel com pareceres fiscais.
+
+        Usa xlsxwriter com constant_memory=True: cada linha é descarregada do heap
+        após ser gravada — uso de RAM é O(1) independente do número de linhas.
+        """
+        import xlsxwriter
 
         qs = self.filter_queryset(self.get_queryset())
-
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = 'Notas Fiscais'
 
         cabecalhos = [
             'Nº NFS-e', 'Competência', 'Data Proc.', 'CNPJ Emitente', 'Emitente',
@@ -404,22 +426,36 @@ class NotaTratadaViewSet(viewsets.ReadOnlyModelViewSet):
             'Ret. CSLL', 'Ret. IRRF', 'Ret. INSS', 'Parecer', 'Chave Substituta',
         ]
 
-        header_fill = PatternFill('solid', fgColor='2563EB')
-        header_font = Font(bold=True, color='FFFFFF')
-        for col, titulo in enumerate(cabecalhos, start=1):
-            cell = ws.cell(row=1, column=col, value=titulo)
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = Alignment(horizontal='center')
+        buf = io.BytesIO()
+        wb  = xlsxwriter.Workbook(buf, {'constant_memory': True, 'in_memory': True})
+        ws  = wb.add_worksheet('Notas Fiscais')
 
-        PARECER_CORES = {
-            'Válida': 'D1FAE5',
-            'Válida (DIVERGÊNCIA RETENÇÃO)': 'FEF3C7',
-            'Cancelada': 'FEE2E2',
-            'Substituída': 'E0E7FF',
+        fmt_header = wb.add_format({
+            'bold': True, 'font_color': 'white', 'bg_color': '#2563EB',
+            'align': 'center', 'border': 1,
+        })
+        fmt_moeda = wb.add_format({'num_format': '#,##0.00'})
+
+        _CORES = {
+            'Válida':                        '#D1FAE5',
+            'Válida (DIVERGÊNCIA RETENÇÃO)': '#FEF3C7',
+            'Cancelada':                     '#FEE2E2',
+            'Substituída':                   '#E0E7FF',
         }
+        PARECER_FMTS      = {k: wb.add_format({'bg_color': v})                            for k, v in _CORES.items()}
+        PARECER_FMTS_MOEDA = {k: wb.add_format({'bg_color': v, 'num_format': '#,##0.00'}) for k, v in _CORES.items()}
 
-        for row_idx, nota in enumerate(qs.iterator(), start=2):
+        # Larguras estimadas por coluna (sem varredura reversa — constant_memory não permite)
+        larguras = [10, 10, 12, 16, 35, 16, 35, 14, 50, 35, 14, 14, 12, 12, 12, 12, 12, 30, 50]
+        for col, (titulo, larg) in enumerate(zip(cabecalhos, larguras)):
+            ws.set_column(col, col, larg)
+            ws.write(0, col, titulo, fmt_header)
+
+        COLS_MOEDA = {10, 11, 12, 13, 14, 15, 16}
+
+        for row_idx, nota in enumerate(qs.iterator(chunk_size=500), start=1):
+            fmt_base  = PARECER_FMTS.get(nota.parecer)
+            fmt_money = PARECER_FMTS_MOEDA.get(nota.parecer, fmt_moeda)
             linha = [
                 nota.numero_nfse,
                 nota.data_competencia,
@@ -431,31 +467,21 @@ class NotaTratadaViewSet(viewsets.ReadOnlyModelViewSet):
                 nota.codigo_tributo,
                 nota.descricao_servico,
                 nota.regime_trib,
-                float(nota.valor_servico) if nota.valor_servico is not None else None,
-                float(nota.valor_liquido) if nota.valor_liquido is not None else None,
-                float(nota.ret_pis)    if nota.ret_pis    is not None else None,
-                float(nota.ret_cofins) if nota.ret_cofins is not None else None,
-                float(nota.ret_csll)   if nota.ret_csll   is not None else None,
-                float(nota.ret_irrf)   if nota.ret_irrf   is not None else None,
-                float(nota.ret_inss)   if nota.ret_inss   is not None else None,
+                float(nota.valor_servico) if nota.valor_servico is not None else '',
+                float(nota.valor_liquido) if nota.valor_liquido is not None else '',
+                float(nota.ret_pis)       if nota.ret_pis       is not None else '',
+                float(nota.ret_cofins)    if nota.ret_cofins    is not None else '',
+                float(nota.ret_csll)      if nota.ret_csll      is not None else '',
+                float(nota.ret_irrf)      if nota.ret_irrf      is not None else '',
+                float(nota.ret_inss)      if nota.ret_inss      is not None else '',
                 nota.parecer,
                 nota.chave_substituta,
             ]
-            for col_idx, valor in enumerate(linha, start=1):
-                ws.cell(row=row_idx, column=col_idx, value=valor)
+            for col_idx, valor in enumerate(linha):
+                fmt = fmt_money if col_idx in COLS_MOEDA else fmt_base
+                ws.write(row_idx, col_idx, valor, fmt)
 
-            cor = PARECER_CORES.get(nota.parecer)
-            if cor:
-                fill = PatternFill('solid', fgColor=cor)
-                for col_idx in range(1, len(cabecalhos) + 1):
-                    ws.cell(row=row_idx, column=col_idx).fill = fill
-
-        for col in ws.columns:
-            max_len = max((len(str(c.value or '')) for c in col), default=10)
-            ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 50)
-
-        buf = io.BytesIO()
-        wb.save(buf)
+        wb.close()
         buf.seek(0)
 
         competencia = request.query_params.get('data_competencia', 'todas')

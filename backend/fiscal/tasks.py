@@ -1,7 +1,7 @@
 import logging
 import os
 
-from celery import shared_task
+from celery import group, shared_task
 from django.utils import timezone
 
 from fiscal.conectores.cte import CTeCapturaService
@@ -107,16 +107,41 @@ def capturar_cliente(cliente) -> dict:
     return {'sucesso': sucesso, 'mensagem': mensagem}
 
 
+@shared_task(
+    bind=True,
+    name='fiscal.tasks.capturar_cliente_task',
+    max_retries=2,
+    default_retry_delay=60,
+)
+def capturar_cliente_task(self, cliente_id: int) -> dict:
+    """Task isolada por cliente — permite execução paralela via Celery group."""
+    try:
+        cliente = Cliente.objects.get(pk=cliente_id)
+        return capturar_cliente(cliente)
+    except Cliente.DoesNotExist:
+        logger.error('capturar_cliente_task: cliente_id=%s não encontrado.', cliente_id)
+        return {'sucesso': False, 'mensagem': 'Cliente não encontrado.'}
+    except Exception as exc:
+        logger.warning('capturar_cliente_task cliente_id=%s erro: %s — retry %s/2', cliente_id, exc, self.request.retries)
+        raise self.retry(exc=exc)
+
+
 @shared_task(name='fiscal.tasks.executar_recolhimento_lote_nsu')
 def executar_recolhimento_lote_nsu():
-    """Task master periodica (Beat: 4h). NF-e + CT-e + NFS-e para todos os clientes ativos."""
-    logger.info('==> Iniciando ciclo de captura automatica por NSU: %s', timezone.now())
-    clientes_ativos = Cliente.objects.filter(ativo=True)
-    total = 0
+    """
+    Task master periódica (Beat: 4h).
+    Dispara captura NF-e + CT-e + NFS-e em paralelo para todos os clientes ativos.
+    Cada cliente roda numa task Celery independente — o ciclo completo leva
+    max(latência_cliente) em vez de sum(latência_cliente).
+    """
+    logger.info('==> Iniciando ciclo de captura paralela por NSU: %s', timezone.now())
+    ids = list(Cliente.objects.filter(ativo=True).values_list('id', flat=True))
+    if not ids:
+        logger.info('==> Nenhum cliente ativo — ciclo ignorado.')
+        return 'Nenhum cliente ativo.'
 
-    for cliente in clientes_ativos:
-        capturar_cliente(cliente)
-        total += 1
+    job = group(capturar_cliente_task.s(cid) for cid in ids)
+    job.delay()
 
-    logger.info('==> Ciclo de captura automatica por NSU finalizado.')
-    return f'Rotina concluida. {total} cliente(s) verificado(s).'
+    logger.info('==> %d task(s) de captura disparadas em paralelo.', len(ids))
+    return f'{len(ids)} cliente(s) disparado(s) em paralelo.'

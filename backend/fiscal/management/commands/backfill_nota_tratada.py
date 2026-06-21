@@ -8,9 +8,10 @@ Execução:
     python manage.py backfill_nota_tratada --force        # reprocessa mesmo os que já têm registro
 """
 from django.core.management.base import BaseCommand
+from django.db.models import Subquery
 
 from fiscal.conectores.nfse import _salvar_nota_tratada
-from fiscal.models import Documento, NotaTratada, Xml
+from fiscal.models import Documento, NotaTratada
 
 
 class Command(BaseCommand):
@@ -31,8 +32,10 @@ class Command(BaseCommand):
         if options['cliente']:
             qs = qs.filter(cliente_id=options['cliente'])
         if not options['force']:
-            ids_com_nota = NotaTratada.objects.values_list('documento_id', flat=True)
-            qs = qs.exclude(id__in=ids_com_nota)
+            # Subquery avaliada inteiramente no PostgreSQL — sem materialização Python.
+            qs = qs.exclude(
+                id__in=Subquery(NotaTratada.objects.values('documento_id'))
+            )
 
         total = qs.count()
         self.stdout.write(f'Documentos a processar: {total}')
