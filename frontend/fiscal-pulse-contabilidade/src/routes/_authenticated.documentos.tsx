@@ -283,9 +283,10 @@ function DocumentosPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ALL}>Todos os status</SelectItem>
-                  <SelectItem value="MANIFESTADO">Manifestado</SelectItem>
                   <SelectItem value="COMPLETO">Autorizada</SelectItem>
                   <SelectItem value="CANCELADO">Cancelada</SelectItem>
+                  <SelectItem value="SUBSTITUIDO">Substituída</SelectItem>
+                  <SelectItem value="MANIFESTADO">Manifestado</SelectItem>
                 </SelectContent>
               </Select>
             </FilterField>
