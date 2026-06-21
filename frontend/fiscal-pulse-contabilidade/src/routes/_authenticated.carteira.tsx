@@ -7,6 +7,7 @@ import {
   FileKey,
   Loader2,
   Lock,
+  Pencil,
   Plus,
   ShieldAlert,
   ShieldCheck,
@@ -20,7 +21,7 @@ import { z } from "zod";
 
 import { AppShell } from "@/components/app-shell";
 import { useAuth } from "@/lib/auth";
-import { createCertificado, createCliente, deleteCliente, listCertificados, listClientes } from "@/lib/api";
+import { createCertificado, createCliente, deleteCliente, listCertificados, listClientes, patchCliente } from "@/lib/api";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,7 +32,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import type { Certificado, NovoClienteInput } from "@/lib/types";
+import type { Certificado, NovoClienteInput, RegimeTributario } from "@/lib/types";
+import { REGIME_LABELS } from "@/lib/types";
 import { daysUntil, formatCnpj, formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +54,27 @@ export const Route = createFileRoute("/_authenticated/carteira")({
   component: CarteiraPage,
 });
 
+const REGIME_STYLE: Record<RegimeTributario, { bg: string; text: string }> = {
+  "":    { bg: "#F1F5F9", text: "#64748B" },
+  MEI:   { bg: "#EFF6FF", text: "#1D4ED8" },
+  SN:    { bg: "#F0FDF4", text: "#15803D" },
+  LP:    { bg: "#FFF7ED", text: "#C2410C" },
+  LR:    { bg: "#FDF4FF", text: "#7E22CE" },
+  LA:    { bg: "#FFF1F2", text: "#9F1239" },
+};
+
+function RegimeBadge({ regime }: { regime: RegimeTributario }) {
+  const s = REGIME_STYLE[regime] ?? REGIME_STYLE[""];
+  return (
+    <span
+      className="inline-block rounded-md px-2 py-0.5 text-xs font-medium"
+      style={{ background: s.bg, color: s.text }}
+    >
+      {regime ? REGIME_LABELS[regime] : "Regime não informado"}
+    </span>
+  );
+}
+
 function certStatus(cert: Certificado | undefined) {
   if (!cert) return null;
   const dias = daysUntil(cert.validade);
@@ -66,6 +89,7 @@ function CarteiraPage() {
   const [openCliente, setOpenCliente] = useState(false);
   const [certTarget, setCertTarget] = useState<number | undefined>();
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; nome: string } | undefined>();
+  const [regimeTarget, setRegimeTarget] = useState<{ id: number; nome: string; regime: RegimeTributario } | undefined>();
 
   const clientesQuery = useQuery({ queryKey: ["clientes"], queryFn: listClientes });
   const certsQuery = useQuery({ queryKey: ["certificados"], queryFn: listCertificados });
@@ -145,6 +169,16 @@ function CarteiraPage() {
                     </span>
                   </div>
 
+                  {/* Regime tributário */}
+                  <button
+                    className="flex items-center gap-1.5 text-left group"
+                    title="Clique para editar o regime tributário"
+                    onClick={() => setRegimeTarget({ id: c.id, nome: c.razao_social, regime: c.regime_tributario })}
+                  >
+                    <RegimeBadge regime={c.regime_tributario} />
+                    <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </button>
+
                   {/* Cert info */}
                   <div
                     className="flex items-center gap-2.5 rounded-[10px] px-3 py-2.5"
@@ -202,6 +236,10 @@ function CarteiraPage() {
       </div>
 
       <NovoClienteDialog open={openCliente} onOpenChange={setOpenCliente} />
+      <EditarRegimeDialog
+        target={regimeTarget}
+        onOpenChange={(v) => { if (!v) setRegimeTarget(undefined); }}
+      />
       <UploadCertDialog
         open={certTarget !== undefined}
         onOpenChange={(v) => {
@@ -271,7 +309,79 @@ function ConfirmarExclusaoDialog({
   );
 }
 
+// ---- Editar Regime ----
+
+function EditarRegimeDialog({
+  target,
+  onOpenChange,
+}: {
+  target: { id: number; nome: string; regime: RegimeTributario } | undefined;
+  onOpenChange: (v: boolean) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [regime, setRegime] = useState<RegimeTributario>("");
+
+  // sync when target changes
+  if (target && regime !== target.regime) {
+    setRegime(target.regime);
+  }
+
+  const mutation = useMutation({
+    mutationFn: () => patchCliente(target!.id, { regime_tributario: regime }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["clientes"] });
+      toast.success("Regime tributário atualizado");
+      onOpenChange(false);
+    },
+    onError: (err: Error) => toast.error(err.message || "Falha ao atualizar regime"),
+  });
+
+  return (
+    <Dialog open={target !== undefined} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Pencil className="h-4 w-4" />
+            Regime Tributário
+          </DialogTitle>
+          <DialogDescription className="truncate">{target?.nome}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <Label>Selecione o regime</Label>
+          <select
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            value={regime}
+            onChange={(e) => setRegime(e.target.value as RegimeTributario)}
+          >
+            {REGIME_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancelar
+          </Button>
+          <Button disabled={mutation.isPending} onClick={() => mutation.mutate()}>
+            {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Salvar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ---- Novo Cliente ----
+
+const REGIME_OPTIONS: { value: RegimeTributario; label: string }[] = [
+  { value: "",    label: "Não informado" },
+  { value: "MEI", label: "MEI — Microempreendedor Individual" },
+  { value: "SN",  label: "Simples Nacional" },
+  { value: "LP",  label: "Lucro Presumido" },
+  { value: "LR",  label: "Lucro Real" },
+  { value: "LA",  label: "Lucro Arbitrado" },
+];
 
 const clienteSchema = z.object({
   cnpj: z
@@ -280,6 +390,7 @@ const clienteSchema = z.object({
     .refine((v) => v.replace(/\D/g, "").length === 14, "CNPJ deve ter 14 dígitos"),
   razao_social: z.string().trim().min(2, "Informe a razão social").max(150),
   telefone: z.string().trim().max(20).optional(),
+  regime_tributario: z.string().optional(),
 });
 
 function NovoClienteDialog({
@@ -290,11 +401,11 @@ function NovoClienteDialog({
   onOpenChange: (v: boolean) => void;
 }) {
   const queryClient = useQueryClient();
-  const [form, setForm] = useState<NovoClienteInput>({ cnpj: "", razao_social: "", telefone: "" });
+  const [form, setForm] = useState<NovoClienteInput>({ cnpj: "", razao_social: "", telefone: "", regime_tributario: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   function reset() {
-    setForm({ cnpj: "", razao_social: "", telefone: "" });
+    setForm({ cnpj: "", razao_social: "", telefone: "", regime_tributario: "" });
     setErrors({});
   }
 
@@ -366,6 +477,18 @@ function NovoClienteDialog({
               onChange={(e) => update("telefone", e.target.value)}
               placeholder="(11) 90000-0000"
             />
+          </Field>
+
+          <Field label="Regime Tributário" error={errors.regime_tributario} className="sm:col-span-2">
+            <select
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              value={form.regime_tributario ?? ""}
+              onChange={(e) => setForm((f) => ({ ...f, regime_tributario: e.target.value as RegimeTributario }))}
+            >
+              {REGIME_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
           </Field>
 
           <DialogFooter className="sm:col-span-2">

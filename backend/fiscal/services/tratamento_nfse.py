@@ -137,12 +137,25 @@ def extrair_dados_nfse(
         or t('.//nfse:serv/nfse:cServ/nfse:xDescServ')
     )
 
-    # ── Regime especial de tributação ─────────────────────────────────
-    reg_raw = (
-        t('.//nfse:DPS/nfse:infDPS/nfse:regEspTrib')
-        or t('.//nfse:regEspTrib')
+    # ── Regime tributário: opSimpNac tem precedência sobre regEspTrib ─
+    op_simp_nac = (
+        t('.//nfse:DPS/nfse:infDPS/nfse:emit/nfse:opSimpNac')
+        or t('.//nfse:emit/nfse:opSimpNac')
+        or t('.//nfse:opSimpNac')
     )
-    regime_trib = _regime_trib(reg_raw)
+    _OP_SIMP_MAP = {
+        '1': 'Simples Nacional',
+        '2': 'Simples Nacional (Excesso Sublimite)',
+        '3': 'MEI',
+    }
+    if op_simp_nac in _OP_SIMP_MAP:
+        regime_trib = _OP_SIMP_MAP[op_simp_nac]
+    else:
+        reg_raw = (
+            t('.//nfse:DPS/nfse:infDPS/nfse:regEspTrib')
+            or t('.//nfse:regEspTrib')
+        )
+        regime_trib = _regime_trib(reg_raw)
 
     # ── Valores ───────────────────────────────────────────────────────
     v_serv_raw = (

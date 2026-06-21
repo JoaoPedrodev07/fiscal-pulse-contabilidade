@@ -112,6 +112,8 @@ def _xml_nfse(
     ret_inss='',
     tp_ret='',
     ch_substda='',
+    op_simp_nac='',
+    reg_esp_trib='0',
     status_proc='Autorizado',
 ) -> str:
     """Monta XML NFS-e Nacional mínimo válido para os testes."""
@@ -122,6 +124,7 @@ def _xml_nfse(
     csll_tag  = f'<vRetCSLL>{ret_csll}</vRetCSLL>' if ret_csll else ''
     irrf_tag  = f'<vRetIRRF>{ret_irrf}</vRetIRRF>' if ret_irrf else ''
     inss_tag  = f'<vRetINSS>{ret_inss}</vRetINSS>' if ret_inss else ''
+    op_tag    = f'<opSimpNac>{op_simp_nac}</opSimpNac>' if op_simp_nac else ''
 
     return dedent(f"""\
     <?xml version="1.0" encoding="UTF-8"?>
@@ -133,6 +136,7 @@ def _xml_nfse(
         <emit>
           <CNPJ>{cnpj_emit}</CNPJ>
           <xNome>{nome_emit}</xNome>
+          {op_tag}
         </emit>
         <DPS>
           <infDPS>
@@ -147,7 +151,7 @@ def _xml_nfse(
             <valores>
               <vServPrest><vServ>{v_serv}</vServ></vServPrest>
             </valores>
-            <regEspTrib>0</regEspTrib>
+            <regEspTrib>{reg_esp_trib}</regEspTrib>
             {subst_block}
           </infDPS>
         </DPS>
@@ -200,8 +204,48 @@ class ExtrairDadosNfseTest(TestCase):
         self.assertEqual(dados['valor_liquido'], decimal.Decimal('2300.00'))
 
     def test_regime_trib_mapeado(self):
+        """Sem opSimpNac e regEspTrib='0' → Nenhum."""
         xml = _xml_nfse()
         dados = extrair_dados_nfse(xml, 'COMPLETO', 'EMITENTE')
+        self.assertEqual(dados['regime_trib'], 'Nenhum')
+
+    # ── opSimpNac → regime tributário (TDD: regra fiscal crítica) ─────────────
+
+    def test_regime_mei_quando_opsimpnac_3(self):
+        """opSimpNac='3' → MEI independente do regEspTrib."""
+        xml = _xml_nfse(op_simp_nac='3')
+        dados = extrair_dados_nfse(xml, 'COMPLETO', 'EMITENTE')
+        self.assertEqual(dados['regime_trib'], 'MEI')
+
+    def test_regime_simples_nacional_quando_opsimpnac_1(self):
+        """opSimpNac='1' → Simples Nacional."""
+        xml = _xml_nfse(op_simp_nac='1')
+        dados = extrair_dados_nfse(xml, 'COMPLETO', 'EMITENTE')
+        self.assertEqual(dados['regime_trib'], 'Simples Nacional')
+
+    def test_regime_simples_excesso_quando_opsimpnac_2(self):
+        """opSimpNac='2' → Simples Nacional (Excesso Sublimite)."""
+        xml = _xml_nfse(op_simp_nac='2')
+        dados = extrair_dados_nfse(xml, 'COMPLETO', 'EMITENTE')
+        self.assertEqual(dados['regime_trib'], 'Simples Nacional (Excesso Sublimite)')
+
+    def test_opsimpnac_tem_precedencia_sobre_regesp_trib(self):
+        """opSimpNac presente deve sobrescrever regEspTrib — regra fiscal de precedência."""
+        xml = _xml_nfse(op_simp_nac='3', reg_esp_trib='6')  # regEspTrib='6'=Sociedade de Profissões
+        dados = extrair_dados_nfse(xml, 'COMPLETO', 'EMITENTE')
+        self.assertEqual(dados['regime_trib'], 'MEI')
+
+    def test_sem_opsimpnac_usa_regesp_trib(self):
+        """Sem opSimpNac, regEspTrib='3' → 'Sociedade de Profissionais' (regime ISS)."""
+        xml = _xml_nfse(reg_esp_trib='3')
+        dados = extrair_dados_nfse(xml, 'COMPLETO', 'EMITENTE')
+        self.assertEqual(dados['regime_trib'], 'Sociedade de Profissionais')
+
+    def test_opsimpnac_0_nao_eh_mei_nem_simples(self):
+        """opSimpNac='0' (Não Simples) deve cair no fallback de regEspTrib."""
+        xml = _xml_nfse(op_simp_nac='0', reg_esp_trib='0')
+        dados = extrair_dados_nfse(xml, 'COMPLETO', 'EMITENTE')
+        # '0' não está no _OP_SIMP_MAP, usa regEspTrib='0' → 'Nenhum'
         self.assertEqual(dados['regime_trib'], 'Nenhum')
 
     # ── Pareceres ─────────────────────────────────────────────────────────────
@@ -487,21 +531,134 @@ class ExportarExcelJWTTest(APITestCase):
         self.assertIn('Notas Fiscais', wb.sheetnames)
 
     def test_planilha_tem_linha_de_dados(self):
+        """Com 1 nota, planilha tem 3 linhas de cabeçalho + 1 dado + 1 SUBTOTAL = 5 linhas."""
         import openpyxl
         self.client.force_authenticate(user=self.staff)
         res = self.client.get('/api/notas-tratadas/exportar/')
         wb = openpyxl.load_workbook(io.BytesIO(res.content))
         ws = wb['Notas Fiscais']
-        self.assertGreater(ws.max_row, 1)
+        # 3 cabeçalhos (título, meta, colunas) + linhas de dados + SUBTOTAL
+        self.assertGreater(ws.max_row, 4)
 
     def test_filtro_competencia_aplicado_na_exportacao(self):
-        """Exportar com filtro de competência errado retorna planilha com só cabeçalho."""
+        """Filtro de competência sem notas → 3 linhas de cabeçalho + 1 SUBTOTAL, sem dados."""
         import openpyxl
         self.client.force_authenticate(user=self.staff)
         res = self.client.get('/api/notas-tratadas/exportar/?data_competencia=01/2000')
         wb = openpyxl.load_workbook(io.BytesIO(res.content))
         ws = wb['Notas Fiscais']
-        self.assertEqual(ws.max_row, 1)
+        # título (1) + meta (2) + colunas (3) + SUBTOTAL (4) — zero linhas de dados
+        self.assertEqual(ws.max_row, 4)
+        # linha 1 (índice 0) deve conter o título da empresa, não dados de nota
+        self.assertIn('CaptaFiscal', str(ws.cell(row=1, column=1).value or ''))
+
+    def test_planilha_tem_aba_legenda(self):
+        """A aba Legenda deve existir com explicações de cores e regimes."""
+        import openpyxl
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.get('/api/notas-tratadas/exportar/')
+        wb = openpyxl.load_workbook(io.BytesIO(res.content))
+        self.assertIn('Legenda', wb.sheetnames)
+
+    def test_planilha_tem_tres_linhas_de_cabecalho(self):
+        """Estrutura: linha 1=título, linha 2=metadados, linha 3=colunas."""
+        import openpyxl
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.get('/api/notas-tratadas/exportar/')
+        wb = openpyxl.load_workbook(io.BytesIO(res.content))
+        ws = wb['Notas Fiscais']
+        self.assertIn('CaptaFiscal', str(ws.cell(row=1, column=1).value or ''))
+        self.assertIn('Gerado em', str(ws.cell(row=2, column=1).value or ''))
+        self.assertEqual(ws.cell(row=3, column=1).value, 'Nº NFS-e')
+
+    def test_linha_subtotal_contem_label(self):
+        """Última linha deve conter o label de SUBTOTAL na coluna A."""
+        import openpyxl
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.get('/api/notas-tratadas/exportar/')
+        wb = openpyxl.load_workbook(io.BytesIO(res.content))
+        ws = wb['Notas Fiscais']
+        ultima = ws.max_row
+        label = str(ws.cell(row=ultima, column=1).value or '')
+        self.assertIn('SUBTOTAL', label.upper())
+
+    def test_dados_comecam_na_linha_4(self):
+        """Com 1 nota, dados ficam na linha 4 (após 3 cabeçalhos)."""
+        import openpyxl
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.get('/api/notas-tratadas/exportar/')
+        wb = openpyxl.load_workbook(io.BytesIO(res.content))
+        ws = wb['Notas Fiscais']
+        # linha 4 é a primeira de dados — deve ter o número da nota '1'
+        self.assertEqual(str(ws.cell(row=4, column=1).value or ''), '1')
+
+    def test_mei_retencao_nula_exibe_na(self):
+        """Nota MEI com retenções nulas deve exibir 'N/A' nas células de retenção."""
+        import openpyxl
+        from fiscal.models import NotaTratada
+        # Cria nota com regime MEI e retenções nulas
+        doc_mei = make_documento(self.cliente, chave='Z' * 44)
+        nota_mei = make_nota_tratada(
+            doc_mei, numero='999', competencia='07/2025',
+            emitente_cnpj='55555555000155',
+        )
+        nota_mei.regime_trib = 'MEI'
+        nota_mei.ret_pis     = None
+        nota_mei.ret_cofins  = None
+        nota_mei.ret_csll    = None
+        nota_mei.ret_irrf    = None
+        nota_mei.ret_inss    = None
+        nota_mei.save(update_fields=['regime_trib', 'ret_pis', 'ret_cofins', 'ret_csll', 'ret_irrf', 'ret_inss'])
+
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.get('/api/notas-tratadas/exportar/?data_competencia=07/2025')
+        wb = openpyxl.load_workbook(io.BytesIO(res.content))
+        ws = wb['Notas Fiscais']
+        # Linha 4 é a primeira de dados (competência 07/2025 tem só nota MEI)
+        # Coluna 13 (índice 12, 1-indexed) = Ret. PIS
+        celula_pis = ws.cell(row=4, column=13).value
+        self.assertEqual(celula_pis, 'N/A')
+
+    def test_nota_nao_mei_retencao_nula_exibe_vazio(self):
+        """Nota não-MEI com retenção nula deve ter célula vazia (não 'N/A')."""
+        import openpyxl
+        doc_lp = make_documento(self.cliente, chave='Y' * 44)
+        nota_lp = make_nota_tratada(
+            doc_lp, numero='888', competencia='08/2025',
+            emitente_cnpj='55555555000155',
+        )
+        nota_lp.regime_trib = 'Lucro Presumido'
+        nota_lp.ret_pis     = None
+        nota_lp.save(update_fields=['regime_trib', 'ret_pis'])
+
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.get('/api/notas-tratadas/exportar/?data_competencia=08/2025')
+        wb = openpyxl.load_workbook(io.BytesIO(res.content))
+        ws = wb['Notas Fiscais']
+        celula_pis = ws.cell(row=4, column=13).value
+        # célula vazia (None ou '') — nunca 'N/A' para não-MEI
+        self.assertNotEqual(celula_pis, 'N/A')
+
+    def test_exportar_preserva_todos_os_campos_da_nota(self):
+        """Verificar integridade dos dados exportados campo a campo."""
+        import openpyxl
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.get('/api/notas-tratadas/exportar/?data_competencia=06/2025')
+        wb = openpyxl.load_workbook(io.BytesIO(res.content))
+        ws = wb['Notas Fiscais']
+        # Cabeçalhos esperados na linha 3
+        cabecalhos_esperados = [
+            'Nº NFS-e', 'Competência', 'Data Proc.', 'CNPJ Emitente', 'Emitente',
+            'Doc Tomador', 'Tomador', 'Cód. Tributo', 'Serviço', 'Regime Trib.',
+            'Valor Serviço', 'Valor Líquido', 'Ret. PIS', 'Ret. COFINS',
+            'Ret. CSLL', 'Ret. IRRF', 'Ret. INSS', 'Parecer', 'Chave Substituta',
+        ]
+        for col_idx, esperado in enumerate(cabecalhos_esperados, start=1):
+            self.assertEqual(
+                ws.cell(row=3, column=col_idx).value,
+                esperado,
+                msg=f'Cabeçalho coluna {col_idx} incorreto',
+            )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -676,3 +833,181 @@ class BackfillNotaTratadaCommandTest(TestCase):
         self._run(cliente=self.cliente.pk)
         self.assertTrue(NotaTratada.objects.filter(documento=doc1).exists())
         self.assertFalse(NotaTratada.objects.filter(documento=doc2).exists())
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 8. Cliente.regime_tributario — campo e API
+# ──────────────────────────────────────────────────────────────────────────────
+
+class ClienteRegimeTributarioTest(APITestCase):
+    """Testes para o campo regime_tributario adicionado ao modelo Cliente."""
+
+    def setUp(self):
+        self.escritorio = make_escritorio(cnpj='88888888000188')
+        self.staff = make_staff(username='staff_reg', escritorio=self.escritorio)
+        self.cliente = make_cliente(cnpj='99999999000191', escritorio=self.escritorio)
+
+    def test_regime_tributario_presente_no_serializer(self):
+        """Campo regime_tributario deve aparecer na resposta da API de clientes."""
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.get(f'/api/clientes/{self.cliente.pk}/')
+        self.assertEqual(res.status_code, 200)
+        self.assertIn('regime_tributario', res.data)
+
+    def test_regime_tributario_default_vazio(self):
+        """Cliente recém-criado deve ter regime_tributario='' (não informado)."""
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.get(f'/api/clientes/{self.cliente.pk}/')
+        self.assertEqual(res.data['regime_tributario'], '')
+
+    def test_patch_cliente_atualiza_regime_para_mei(self):
+        """PATCH /api/clientes/{id}/ deve aceitar regime_tributario='MEI'."""
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.patch(
+            f'/api/clientes/{self.cliente.pk}/',
+            {'regime_tributario': 'MEI'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+        self.cliente.refresh_from_db()
+        self.assertEqual(self.cliente.regime_tributario, 'MEI')
+
+    def test_patch_cliente_atualiza_regime_para_simples_nacional(self):
+        """PATCH deve aceitar SN e persistir no banco."""
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.patch(
+            f'/api/clientes/{self.cliente.pk}/',
+            {'regime_tributario': 'SN'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200)
+        self.cliente.refresh_from_db()
+        self.assertEqual(self.cliente.regime_tributario, 'SN')
+
+    def test_patch_cliente_rejeita_regime_invalido(self):
+        """Valor não listado em REGIME_CHOICES deve retornar 400."""
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.patch(
+            f'/api/clientes/{self.cliente.pk}/',
+            {'regime_tributario': 'XX'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_regime_tributario_aparece_na_listagem(self):
+        """Campo regime_tributario deve aparecer em GET /api/clientes/."""
+        self.cliente.regime_tributario = 'LP'
+        self.cliente.save(update_fields=['regime_tributario'])
+        self.client.force_authenticate(user=self.staff)
+        res = self.client.get('/api/clientes/')
+        self.assertEqual(res.status_code, 200)
+        resultados = res.data.get('results', res.data)
+        encontrado = next((c for c in resultados if c['id'] == self.cliente.pk), None)
+        self.assertIsNotNone(encontrado)
+        self.assertEqual(encontrado['regime_tributario'], 'LP')
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 9. Integridade dos dados XML → NotaTratada (pipeline completo)
+# ──────────────────────────────────────────────────────────────────────────────
+
+class PipelineXmlParaNovaTratadaTest(TestCase):
+    """
+    Garante que o pipeline XML → extrair_dados_nfse → salvar_nota_tratada
+    preserva consistência e acurácia dos dados em cada campo.
+    """
+
+    def setUp(self):
+        self.cliente = make_cliente(cnpj='11111111000111')
+
+    def _processar(self, xml: str, status='COMPLETO', papel='EMITENTE'):
+        from fiscal.conectores.nfse import _salvar_nota_tratada
+        import hashlib
+        chave = hashlib.md5(xml.encode()).hexdigest()[:44].ljust(44, '0')
+        doc = make_documento(self.cliente, chave=chave, status=status, papel=papel)
+        _salvar_nota_tratada(doc, xml, status, papel)
+        return NotaTratada.objects.get(documento=doc)
+
+    def test_pipeline_preserva_numero_nfse(self):
+        nota = self._processar(_xml_nfse(numero='42'))
+        self.assertEqual(nota.numero_nfse, '42')
+
+    def test_pipeline_preserva_competencia_no_formato_mm_aaaa(self):
+        nota = self._processar(_xml_nfse(competencia='2025-09'))
+        self.assertEqual(nota.data_competencia, '09/2025')
+
+    def test_pipeline_preserva_emitente_cnpj(self):
+        nota = self._processar(_xml_nfse(cnpj_emit='12345678000195'))
+        self.assertEqual(nota.emitente_cnpj, '12345678000195')
+
+    def test_pipeline_preserva_tomador_nome(self):
+        nota = self._processar(_xml_nfse(nome_toma='Empresa Tomadora SA'))
+        self.assertEqual(nota.tomador_nome, 'Empresa Tomadora SA')
+
+    def test_pipeline_preserva_valor_servico_como_decimal(self):
+        nota = self._processar(_xml_nfse(v_serv='3750.50'))
+        self.assertEqual(nota.valor_servico, decimal.Decimal('3750.50'))
+
+    def test_pipeline_mei_preserva_regime_e_deixa_retencoes_nulas(self):
+        """MEI (opSimpNac='3') → regime='MEI', retenções federais devem ser None."""
+        nota = self._processar(_xml_nfse(op_simp_nac='3', ret_csll='', ret_pis='', ret_cofins=''))
+        self.assertEqual(nota.regime_trib, 'MEI')
+        # MEI não retém federais — parser deve deixar None, não zero
+        self.assertIsNone(nota.ret_csll)
+        self.assertIsNone(nota.ret_pis)
+        self.assertIsNone(nota.ret_cofins)
+
+    def test_pipeline_simples_nacional_preserva_regime(self):
+        nota = self._processar(_xml_nfse(op_simp_nac='1'))
+        self.assertEqual(nota.regime_trib, 'Simples Nacional')
+
+    def test_pipeline_parecer_valida_com_retencoes_corretas(self):
+        nota = self._processar(_xml_nfse(v_serv='1000.00', ret_csll='10.00'))
+        self.assertEqual(nota.parecer, 'Válida')
+
+    def test_pipeline_parecer_divergencia_detectada(self):
+        nota = self._processar(_xml_nfse(v_serv='1000.00', ret_csll='99.00'))
+        self.assertEqual(nota.parecer, 'Válida (DIVERGÊNCIA RETENÇÃO)')
+
+    def test_pipeline_nota_cancelada_nao_altera_parecer_para_divergencia(self):
+        """Status CANCELADO sobrepõe qualquer divergência de retenção."""
+        from fiscal.conectores.nfse import _salvar_nota_tratada
+        xml = _xml_nfse(v_serv='1000.00', ret_csll='99.00')
+        doc = make_documento(self.cliente, chave='C' * 43 + '1', status='CANCELADO')
+        _salvar_nota_tratada(doc, xml, 'CANCELADO', 'EMITENTE')
+        nota = NotaTratada.objects.get(documento=doc)
+        self.assertEqual(nota.parecer, 'Cancelada')
+
+    def test_pipeline_idempotente_reprocessamento_nao_duplica(self):
+        """Reprocessar o mesmo XML não deve criar segundo registro (update_or_create)."""
+        from fiscal.conectores.nfse import _salvar_nota_tratada
+        doc = make_documento(self.cliente, chave='I' * 44)
+        xml = _xml_nfse(numero='77')
+        _salvar_nota_tratada(doc, xml, 'COMPLETO', 'EMITENTE')
+        _salvar_nota_tratada(doc, xml, 'COMPLETO', 'EMITENTE')  # segunda chamada
+        self.assertEqual(NotaTratada.objects.filter(documento=doc).count(), 1)
+
+    def test_pipeline_exportacao_xlsx_contem_dados_corretos(self):
+        """Após processar 1 nota, exportação deve conter seus dados na planilha."""
+        import io as _io
+        import openpyxl
+
+        # Garante que a nota está no banco
+        nota = self._processar(_xml_nfse(numero='XLS1', v_serv='500.00', competencia='2025-11'))
+
+        # Cria staff e faz request de exportação via test client DRF
+        escritorio = make_escritorio(cnpj='22222222000122')
+        staff = make_staff(username='staff_pipeline', escritorio=escritorio)
+        # Re-associa o cliente ao escritório para isolamento de tenant
+        self.cliente.escritorio = escritorio
+        self.cliente.save(update_fields=['escritorio'])
+
+        from rest_framework.test import APIClient
+        api = APIClient()
+        api.force_authenticate(user=staff)
+        res = api.get('/api/notas-tratadas/exportar/?data_competencia=11/2025')
+        self.assertEqual(res.status_code, 200)
+        wb = openpyxl.load_workbook(_io.BytesIO(res.content))
+        ws = wb['Notas Fiscais']
+        # Linha 4 = primeira linha de dados
+        self.assertEqual(str(ws.cell(row=4, column=1).value or ''), 'XLS1')

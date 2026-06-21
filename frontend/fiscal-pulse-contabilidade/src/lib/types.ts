@@ -9,11 +9,23 @@ export interface UserProfile {
   is_active: boolean;
 }
 
+export type RegimeTributario = "" | "MEI" | "SN" | "LP" | "LR" | "LA";
+
+export const REGIME_LABELS: Record<RegimeTributario, string> = {
+  "":    "Não informado",
+  MEI:   "MEI",
+  SN:    "Simples Nacional",
+  LP:    "Lucro Presumido",
+  LR:    "Lucro Real",
+  LA:    "Lucro Arbitrado",
+};
+
 export interface Cliente {
   id: number;
   cnpj: string;
   razao_social: string;
   telefone?: string;
+  regime_tributario: RegimeTributario;
   ativo: boolean;
   criado_em?: string;
 }
@@ -112,6 +124,7 @@ export interface NovoClienteInput {
   cnpj: string;
   razao_social: string;
   telefone?: string;
+  regime_tributario?: RegimeTributario;
 }
 
 export interface NovoCertificadoInput {

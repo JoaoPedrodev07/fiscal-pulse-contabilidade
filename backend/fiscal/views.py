@@ -410,12 +410,15 @@ class NotaTratadaViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=['get'], url_path='exportar')
     def exportar(self, request):
         """
-        GET /api/notas-tratadas/exportar/ — planilha Excel com pareceres fiscais.
+        GET /api/notas-tratadas/exportar/ — planilha Excel pronta para análise contábil.
 
-        Usa xlsxwriter com constant_memory=True: cada linha é descarregada do heap
-        após ser gravada — uso de RAM é O(1) independente do número de linhas.
+        Funcionalidades: filtros nativos do Excel, linhas de SUBTOTAL (respeitam filtros),
+        cores por parecer, N/A para MEI, legenda de cores e regimes em aba separada.
+        Usa xlsxwriter com constant_memory=True: O(1) de RAM independente do volume.
         """
         import xlsxwriter
+        from django.utils import timezone
+        from xlsxwriter.utility import xl_col_to_name
 
         qs = self.filter_queryset(self.get_queryset())
 
@@ -425,16 +428,62 @@ class NotaTratadaViewSet(viewsets.ReadOnlyModelViewSet):
             'Valor Serviço', 'Valor Líquido', 'Ret. PIS', 'Ret. COFINS',
             'Ret. CSLL', 'Ret. IRRF', 'Ret. INSS', 'Parecer', 'Chave Substituta',
         ]
+        N_COLS   = len(cabecalhos)
+        LAST_COL = N_COLS - 1
+        COLS_MOEDA = {10, 11, 12, 13, 14, 15, 16}  # colunas com valores monetários
 
+        # ── Metadados do relatório ──────────────────────────────────────
+        hoje        = timezone.localtime().strftime('%d/%m/%Y %H:%M')
+        competencia = request.query_params.get('data_competencia', '')
+        cliente_id  = request.query_params.get('cliente', '')
+        partes_meta = [f'Gerado em: {hoje}']
+        if competencia:
+            partes_meta.append(f'Competência: {competencia}')
+        if cliente_id:
+            try:
+                partes_meta.append(f'Cliente: {Cliente.objects.get(pk=cliente_id).razao_social}')
+            except Cliente.DoesNotExist:
+                pass
+        meta_texto = '   |   '.join(partes_meta)
+
+        # ── Workbook ────────────────────────────────────────────────────
         buf = io.BytesIO()
         wb  = xlsxwriter.Workbook(buf, {'constant_memory': True, 'in_memory': True})
-        ws  = wb.add_worksheet('Notas Fiscais')
+        ws      = wb.add_worksheet('Notas Fiscais')
+        ws_leg  = wb.add_worksheet('Legenda')
 
-        fmt_header = wb.add_format({
-            'bold': True, 'font_color': 'white', 'bg_color': '#2563EB',
-            'align': 'center', 'border': 1,
+        # ── Paleta CaptaFiscal ──────────────────────────────────────────
+        AZUL_ESCURO  = '#1E3A5F'
+        AZUL_EMPRESA = '#2563EB'
+        AZUL_CLARO   = '#EFF6FF'
+        AZUL_TOTAL   = '#DBEAFE'
+        BORDA        = '#CBD5E1'
+        FONTE        = 'Calibri'
+
+        _base  = {'font_name': FONTE, 'border': 1, 'border_color': BORDA}
+        _total = {'font_name': FONTE, 'border': 1, 'border_color': BORDA,
+                  'bg_color': AZUL_TOTAL, 'bold': True}
+
+        fmt_titulo = wb.add_format({
+            'bold': True, 'font_name': FONTE, 'font_size': 14,
+            'font_color': 'white', 'bg_color': AZUL_ESCURO, 'valign': 'vcenter',
         })
-        fmt_moeda = wb.add_format({'num_format': '#,##0.00'})
+        fmt_meta = wb.add_format({
+            'italic': True, 'font_name': FONTE, 'font_size': 9,
+            'font_color': '#1D4ED8', 'bg_color': AZUL_CLARO, 'valign': 'vcenter',
+        })
+        fmt_header = wb.add_format({
+            'bold': True, 'font_name': FONTE, 'font_size': 10,
+            'font_color': 'white', 'bg_color': AZUL_EMPRESA,
+            'align': 'center', 'valign': 'vcenter',
+            'border': 1, 'border_color': '#1D4ED8', 'text_wrap': True,
+        })
+        fmt_total_label = wb.add_format({**_total, 'align': 'right', 'italic': True})
+        fmt_total_money = wb.add_format({**_total, 'num_format': 'R$ #,##0.00', 'align': 'right'})
+        fmt_total_blank = wb.add_format({**_total})
+        fmt_moeda       = wb.add_format({**_base, 'num_format': 'R$ #,##0.00', 'align': 'right'})
+        fmt_na          = wb.add_format({**_base, 'italic': True, 'font_color': '#94A3B8', 'align': 'center'})
+        fmt_cell        = wb.add_format({**_base})
 
         _CORES = {
             'Válida':                        '#D1FAE5',
@@ -442,20 +491,68 @@ class NotaTratadaViewSet(viewsets.ReadOnlyModelViewSet):
             'Cancelada':                     '#FEE2E2',
             'Substituída':                   '#E0E7FF',
         }
-        PARECER_FMTS      = {k: wb.add_format({'bg_color': v})                            for k, v in _CORES.items()}
-        PARECER_FMTS_MOEDA = {k: wb.add_format({'bg_color': v, 'num_format': '#,##0.00'}) for k, v in _CORES.items()}
+        PARECER_FMTS = {
+            k: wb.add_format({**_base, 'bg_color': v}) for k, v in _CORES.items()
+        }
+        PARECER_FMTS_MOEDA = {
+            k: wb.add_format({**_base, 'bg_color': v, 'num_format': 'R$ #,##0.00', 'align': 'right'})
+            for k, v in _CORES.items()
+        }
+        PARECER_FMTS_NA = {
+            k: wb.add_format({**_base, 'bg_color': v, 'italic': True,
+                               'font_color': '#94A3B8', 'align': 'center'})
+            for k, v in _CORES.items()
+        }
 
-        # Larguras estimadas por coluna (sem varredura reversa — constant_memory não permite)
-        larguras = [10, 10, 12, 16, 35, 16, 35, 14, 50, 35, 14, 14, 12, 12, 12, 12, 12, 30, 50]
-        for col, (titulo, larg) in enumerate(zip(cabecalhos, larguras)):
+        # ── Larguras de coluna ──────────────────────────────────────────
+        larguras = [14, 11, 11, 16, 36, 16, 36, 12, 50, 28, 14, 14, 13, 13, 13, 13, 13, 28, 50]
+        for col, larg in enumerate(larguras):
             ws.set_column(col, col, larg)
-            ws.write(0, col, titulo, fmt_header)
 
-        COLS_MOEDA = {10, 11, 12, 13, 14, 15, 16}
+        # ── Propriedades da aba de dados ────────────────────────────────
+        ws.set_tab_color(AZUL_EMPRESA)
+        ws.freeze_panes(3, 0)
+        ws.autofilter(2, 0, 2, LAST_COL)
+        ws.set_zoom(90)
+        ws.set_paper(9)         # A4
+        ws.set_landscape()
+        ws.fit_to_pages(1, 0)   # cabe na largura; páginas ilimitadas na altura
+        ws.set_header('&L&"Calibri,Bold"CaptaFiscal&R&9Relatório NFS-e')
+        ws.set_footer('&L&9Sistema CaptaFiscal&C&9Página &P de &N&R&9&D')
+        ws.set_print_scale(85)
 
-        for row_idx, nota in enumerate(qs.iterator(chunk_size=500), start=1):
-            fmt_base  = PARECER_FMTS.get(nota.parecer)
+        # ── Linha 0: Título ─────────────────────────────────────────────
+        ws.set_row(0, 28)
+        ws.write(0, 0, 'CaptaFiscal — Relatório de NFS-e', fmt_titulo)
+        for col in range(1, N_COLS):
+            ws.write(0, col, '', fmt_titulo)
+
+        # ── Linha 1: Metadados ──────────────────────────────────────────
+        ws.set_row(1, 18)
+        ws.write(1, 0, meta_texto, fmt_meta)
+        for col in range(1, N_COLS):
+            ws.write(1, col, '', fmt_meta)
+
+        # ── Linha 2: Cabeçalhos das colunas ─────────────────────────────
+        ws.set_row(2, 36)
+        for col, titulo in enumerate(cabecalhos):
+            ws.write(2, col, titulo, fmt_header)
+
+        # ── Linhas de dados (a partir da linha 3, Excel linha 4) ────────
+        DATA_START_EXCEL = 4   # linha 1-indexed do Excel onde começa os dados
+
+        last_row = 2           # rastreia o último índice de linha escrito (0-indexed)
+        for row_idx, nota in enumerate(qs.iterator(chunk_size=500), start=3):
+            is_mei    = nota.regime_trib == 'MEI'
+            fmt_base  = PARECER_FMTS.get(nota.parecer, fmt_cell)
             fmt_money = PARECER_FMTS_MOEDA.get(nota.parecer, fmt_moeda)
+            fmt_na_p  = PARECER_FMTS_NA.get(nota.parecer, fmt_na)
+
+            def ret_val(v, _mei=is_mei):
+                if v is not None:
+                    return float(v)
+                return 'N/A' if _mei else ''
+
             linha = [
                 nota.numero_nfse,
                 nota.data_competencia,
@@ -466,28 +563,119 @@ class NotaTratadaViewSet(viewsets.ReadOnlyModelViewSet):
                 nota.tomador_nome,
                 nota.codigo_tributo,
                 nota.descricao_servico,
-                nota.regime_trib,
+                nota.regime_trib or '—',
                 float(nota.valor_servico) if nota.valor_servico is not None else '',
                 float(nota.valor_liquido) if nota.valor_liquido is not None else '',
-                float(nota.ret_pis)       if nota.ret_pis       is not None else '',
-                float(nota.ret_cofins)    if nota.ret_cofins    is not None else '',
-                float(nota.ret_csll)      if nota.ret_csll      is not None else '',
-                float(nota.ret_irrf)      if nota.ret_irrf      is not None else '',
-                float(nota.ret_inss)      if nota.ret_inss      is not None else '',
+                ret_val(nota.ret_pis),
+                ret_val(nota.ret_cofins),
+                ret_val(nota.ret_csll),
+                ret_val(nota.ret_irrf),
+                ret_val(nota.ret_inss),
                 nota.parecer,
                 nota.chave_substituta,
             ]
             for col_idx, valor in enumerate(linha):
-                fmt = fmt_money if col_idx in COLS_MOEDA else fmt_base
-                ws.write(row_idx, col_idx, valor, fmt)
+                if col_idx in COLS_MOEDA:
+                    if valor == 'N/A':
+                        ws.write(row_idx, col_idx, valor, fmt_na_p)
+                    elif isinstance(valor, float):
+                        ws.write(row_idx, col_idx, valor, fmt_money)
+                    else:
+                        ws.write(row_idx, col_idx, valor, fmt_base)
+                else:
+                    ws.write(row_idx, col_idx, valor, fmt_base)
+            last_row = row_idx
+
+        # ── Linha de totais com SUBTOTAL (respeitam o auto-filtro) ──────
+        total_row    = last_row + 1
+        last_excel   = last_row + 1   # conversão para índice Excel 1-based
+        ws.set_row(total_row, 18)
+        ws.write(total_row, 0, 'SUBTOTAL (notas visíveis)', fmt_total_label)
+        for col in range(1, N_COLS):
+            if col in COLS_MOEDA:
+                col_letra = xl_col_to_name(col)
+                formula   = f'=SUBTOTAL(9,{col_letra}{DATA_START_EXCEL}:{col_letra}{last_excel})'
+                ws.write_formula(total_row, col, formula, fmt_total_money, 0)
+            else:
+                ws.write(total_row, col, '', fmt_total_blank)
+
+        # ── Legenda (aba separada) ───────────────────────────────────────
+        ws_leg.set_tab_color('#94A3B8')
+        ws_leg.set_column(0, 0, 30)
+        ws_leg.set_column(1, 1, 60)
+
+        _leg_h = wb.add_format({'bold': True, 'font_name': FONTE, 'font_size': 11,
+                                 'font_color': 'white', 'bg_color': AZUL_EMPRESA,
+                                 'border': 1, 'border_color': BORDA})
+        _leg_t = wb.add_format({'bold': True, 'font_name': FONTE, 'font_size': 12,
+                                 'font_color': 'white', 'bg_color': AZUL_ESCURO})
+        _leg_c = wb.add_format({'font_name': FONTE, 'border': 1, 'border_color': BORDA})
+
+        def leg_cor(cor_hex):
+            return wb.add_format({'bg_color': cor_hex, 'font_name': FONTE,
+                                   'border': 1, 'border_color': BORDA})
+
+        ws_leg.set_row(0, 24)
+        ws_leg.write(0, 0, 'Legenda — CaptaFiscal', _leg_t)
+        ws_leg.write(0, 1, '', _leg_t)
+
+        ws_leg.set_row(2, 20)
+        ws_leg.write(2, 0, 'Parecer', _leg_h)
+        ws_leg.write(2, 1, 'Significado', _leg_h)
+
+        legenda_parecer = [
+            ('Válida',                        '#D1FAE5', 'Nota fiscal válida. Retenções conferidas ou não aplicáveis.'),
+            ('Válida (DIVERGÊNCIA RETENÇÃO)',  '#FEF3C7', 'Nota válida mas retenção de CSLL difere do esperado. Verificar.'),
+            ('Cancelada',                      '#FEE2E2', 'Nota cancelada pelo emitente. Não gera obrigação fiscal.'),
+            ('Substituída',                    '#E0E7FF', 'Nota substituída por outra. Ver coluna "Chave Substituta".'),
+        ]
+        for r_idx, (label, cor, desc) in enumerate(legenda_parecer, start=3):
+            ws_leg.set_row(r_idx, 18)
+            ws_leg.write(r_idx, 0, label, leg_cor(cor))
+            ws_leg.write(r_idx, 1, desc, _leg_c)
+
+        ws_leg.set_row(8, 20)
+        ws_leg.write(8, 0, 'Regime Tributário', _leg_h)
+        ws_leg.write(8, 1, 'Impacto nas retenções federais', _leg_h)
+
+        _MEI_C = '#EFF6FF'
+        _SN_C  = '#F0FDF4'
+        _LP_C  = '#FFF7ED'
+        legenda_regime = [
+            ('MEI',                               _MEI_C, 'Microempreendedor Individual — PIS/COFINS/CSLL/IRRF/INSS marcados N/A (não retém).'),
+            ('Simples Nacional',                   _SN_C, 'Simples Nacional — retenções federais geralmente dispensadas; ISS retido conforme municipio.'),
+            ('Simples Nacional (Excesso Sublimite)', _SN_C, 'Simples Nacional com excesso de sublimite de ISS.'),
+            ('Lucro Presumido / Real',             _LP_C, 'Retenções federais são obrigatórias acima do limite mínimo de R$ 215,05.'),
+            ('Nenhum / —',                         '#F1F5F9', 'Regime não declarado na NFS-e. Verificar obrigatoriedade conforme valor.'),
+        ]
+        for r_idx, (label, cor, desc) in enumerate(legenda_regime, start=9):
+            ws_leg.set_row(r_idx, 18)
+            ws_leg.write(r_idx, 0, label, leg_cor(cor))
+            ws_leg.write(r_idx, 1, desc, _leg_c)
+
+        ws_leg.set_row(15, 20)
+        ws_leg.write(15, 0, 'Dicas de uso', _leg_h)
+        ws_leg.write(15, 1, '', _leg_h)
+
+        dicas = [
+            'Use os filtros da linha 3 (seta ▼) para filtrar por competência, emitente, tomador ou parecer.',
+            'A linha "SUBTOTAL" ao final da tabela atualiza automaticamente ao aplicar filtros.',
+            'Selecione uma coluna de valor e pressione Alt+= para somar rapidamente as células visíveis.',
+            'Insira uma Tabela Dinâmica (PivotTable) a partir desta planilha para análise por período ou emitente.',
+            'Colunas "N/A" indicam que a retenção não é aplicável (emitente MEI ou Simples Nacional).',
+            'Coluna "Chave Substituta" indica qual nota substituiu esta (se Substituída).',
+        ]
+        for r_idx, dica in enumerate(dicas, start=16):
+            ws_leg.write(r_idx, 0, f'• {dica[:28]}', _leg_c)
+            ws_leg.write(r_idx, 1, dica, _leg_c)
 
         wb.close()
         buf.seek(0)
 
-        competencia = request.query_params.get('data_competencia', 'todas')
+        slug = competencia.replace('/', '-') if competencia else 'todas'
         response = HttpResponse(
             buf.read(),
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
-        response['Content-Disposition'] = f'attachment; filename="relatorio_nfse_{competencia}.xlsx"'
+        response['Content-Disposition'] = f'attachment; filename="captafiscal_nfse_{slug}.xlsx"'
         return response

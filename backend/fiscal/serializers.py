@@ -24,7 +24,7 @@ class ClienteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Cliente
-        fields = ['id', 'escritorio', 'escritorio_nome', 'cnpj', 'razao_social', 'telefone', 'uf', 'ativo', 'criado_em']
+        fields = ['id', 'escritorio', 'escritorio_nome', 'cnpj', 'razao_social', 'telefone', 'uf', 'regime_tributario', 'ativo', 'criado_em']
         read_only_fields = ['id', 'criado_em', 'escritorio', 'escritorio_nome']
 
     def validate_cnpj(self, value):

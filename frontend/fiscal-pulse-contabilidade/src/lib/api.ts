@@ -203,6 +203,12 @@ export async function createCliente(input: NovoClienteInput): Promise<Cliente> {
   return http<Cliente>("/api/clientes/", { method: "POST", body: JSON.stringify(input) });
 }
 
+// PATCH /api/clientes/{id}/
+export async function patchCliente(id: number, data: Partial<NovoClienteInput>): Promise<Cliente> {
+  if (USE_MOCK) { await delay(); return {} as Cliente; }
+  return http<Cliente>(`/api/clientes/${id}/`, { method: "PATCH", body: JSON.stringify(data) });
+}
+
 // DELETE /api/clientes/{id}/
 export async function deleteCliente(id: number): Promise<void> {
   if (USE_MOCK) { await delay(); return; }

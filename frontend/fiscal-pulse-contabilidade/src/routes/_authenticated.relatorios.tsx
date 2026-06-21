@@ -42,8 +42,10 @@ function ParecerBadge({ parecer }: { parecer: ParecerNfse }) {
   );
 }
 
-function fmt(v: number | null): string {
-  if (v === null || v === undefined) return "—";
+const IS_MEI = (regime: string) => regime === "MEI";
+
+function fmt(v: number | null, isMei = false): string {
+  if (v === null || v === undefined) return isMei ? "N/A" : "—";
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 }
 
@@ -61,7 +63,7 @@ function RelatoriosPage() {
   });
 
   const notasQuery = useQuery({
-    queryKey: ["notas-tratadas", filters, page],
+    queryKey: ["notas-tratadas", filters, page, busca],
     queryFn: () => listNotasTratadas({ ...filters, search: busca || undefined, page }),
     placeholderData: keepPreviousData,
     enabled: isStaff,
@@ -199,8 +201,8 @@ function RelatoriosPage() {
                   <tr className="border-b border-gray-100 bg-gray-50">
                     {[
                       "Nº NFS-e", "Competência", "Emitente", "Tomador",
-                      "Valor Serviço", "Ret. PIS", "Ret. COFINS", "Ret. CSLL",
-                      "Ret. IRRF", "Ret. INSS", "Parecer",
+                      "Regime", "Valor Serviço", "Ret. PIS", "Ret. COFINS",
+                      "Ret. CSLL", "Ret. IRRF", "Ret. INSS", "Parecer",
                     ].map((h) => (
                       <th
                         key={h}
@@ -253,7 +255,34 @@ function RelatoriosPage() {
   );
 }
 
+const REGIME_ROW_STYLE: Record<string, { bg: string; text: string }> = {
+  MEI:  { bg: "#EFF6FF", text: "#1D4ED8" },
+  SN:   { bg: "#F0FDF4", text: "#15803D" },
+  LP:   { bg: "#FFF7ED", text: "#C2410C" },
+  LR:   { bg: "#FDF4FF", text: "#7E22CE" },
+  LA:   { bg: "#FFF1F2", text: "#9F1239" },
+  // NFS-e parsed values
+  "Simples Nacional":                    { bg: "#F0FDF4", text: "#15803D" },
+  "Simples Nacional (Excesso Sublimite)": { bg: "#ECFDF5", text: "#065F46" },
+};
+
+function RegimeTag({ regime }: { regime: string }) {
+  if (!regime || regime === "Nenhum") {
+    return <span className="text-xs text-gray-400">—</span>;
+  }
+  const s = REGIME_ROW_STYLE[regime] ?? { bg: "#F1F5F9", text: "#475569" };
+  return (
+    <span
+      className="inline-block rounded-md px-2 py-0.5 text-xs font-medium whitespace-nowrap"
+      style={{ background: s.bg, color: s.text }}
+    >
+      {regime}
+    </span>
+  );
+}
+
 function NotaRow({ nota }: { nota: NotaTratada }) {
+  const mei = IS_MEI(nota.regime_trib);
   return (
     <tr className="hover:bg-gray-50">
       <td className="px-4 py-3 font-mono text-xs text-gray-700">{nota.numero_nfse || "—"}</td>
@@ -270,12 +299,13 @@ function NotaRow({ nota }: { nota: NotaTratada }) {
           <p className="truncate text-xs text-gray-400">{nota.tomador_doc}</p>
         </div>
       </td>
+      <td className="px-4 py-3"><RegimeTag regime={nota.regime_trib} /></td>
       <td className="px-4 py-3 text-right text-gray-700">{fmt(nota.valor_servico)}</td>
-      <td className="px-4 py-3 text-right text-gray-700">{fmt(nota.ret_pis)}</td>
-      <td className="px-4 py-3 text-right text-gray-700">{fmt(nota.ret_cofins)}</td>
-      <td className="px-4 py-3 text-right text-gray-700">{fmt(nota.ret_csll)}</td>
-      <td className="px-4 py-3 text-right text-gray-700">{fmt(nota.ret_irrf)}</td>
-      <td className="px-4 py-3 text-right text-gray-700">{fmt(nota.ret_inss)}</td>
+      <td className="px-4 py-3 text-right" style={{ color: mei && nota.ret_pis === null ? "#94A3B8" : undefined }}>{fmt(nota.ret_pis, mei)}</td>
+      <td className="px-4 py-3 text-right" style={{ color: mei && nota.ret_cofins === null ? "#94A3B8" : undefined }}>{fmt(nota.ret_cofins, mei)}</td>
+      <td className="px-4 py-3 text-right" style={{ color: mei && nota.ret_csll === null ? "#94A3B8" : undefined }}>{fmt(nota.ret_csll, mei)}</td>
+      <td className="px-4 py-3 text-right" style={{ color: mei && nota.ret_irrf === null ? "#94A3B8" : undefined }}>{fmt(nota.ret_irrf, mei)}</td>
+      <td className="px-4 py-3 text-right" style={{ color: mei && nota.ret_inss === null ? "#94A3B8" : undefined }}>{fmt(nota.ret_inss, mei)}</td>
       <td className="px-4 py-3">
         <ParecerBadge parecer={nota.parecer} />
       </td>

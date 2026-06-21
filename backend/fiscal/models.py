@@ -58,6 +58,18 @@ class Cliente(models.Model):
     telefone     = models.CharField(max_length=15, blank=True, verbose_name='Telefone')
     uf           = models.CharField(max_length=2, default='RJ', verbose_name='UF',
                                     help_text='Sigla do estado (ex: SP, RJ). Usada para roteamento SEFAZ.')
+    REGIME_CHOICES = [
+        ('', 'Não informado'),
+        ('MEI', 'MEI — Microempreendedor Individual'),
+        ('SN',  'Simples Nacional'),
+        ('LP',  'Lucro Presumido'),
+        ('LR',  'Lucro Real'),
+        ('LA',  'Lucro Arbitrado'),
+    ]
+    regime_tributario = models.CharField(
+        max_length=3, blank=True, default='',
+        choices=REGIME_CHOICES, verbose_name='Regime Tributário',
+    )
     ativo        = models.BooleanField(default=True, verbose_name='Ativo')
     criado_em    = models.DateTimeField(auto_now_add=True)
 
