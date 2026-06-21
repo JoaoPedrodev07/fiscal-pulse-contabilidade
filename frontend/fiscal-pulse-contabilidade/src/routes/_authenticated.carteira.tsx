@@ -14,6 +14,7 @@ import {
   Upload,
   UserPlus,
 } from "lucide-react";
+
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -33,8 +34,6 @@ import {
 import type { Certificado, NovoClienteInput } from "@/lib/types";
 import { daysUntil, formatCnpj, formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -46,18 +45,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/carteira")({
-  head: () => ({ meta: [{ title: "Carteira de Clientes — Fiscal Tracker" }] }),
+  head: () => ({ meta: [{ title: "Carteira de Clientes — CaptaFiscal" }] }),
   component: CarteiraPage,
 });
 
@@ -95,7 +86,7 @@ function CarteiraPage() {
   const loading = clientesQuery.isLoading || certsQuery.isLoading;
 
   return (
-    <AppShell title="Carteira de Clientes">
+    <AppShell title="Carteira de Clientes" subtitle="Gerencie CNPJs e certificados digitais">
       <div className="space-y-5">
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
@@ -109,103 +100,105 @@ function CarteiraPage() {
           </Button>
         </div>
 
-        <Card>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Razão Social</TableHead>
-                  <TableHead>CNPJ</TableHead>
-                  <TableHead>Certificado A1</TableHead>
-                  <TableHead>Validade do Cert.</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <TableRow key={i}>
-                      <TableCell colSpan={6}>
-                        <Skeleton className="h-6 w-full" />
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : clientes.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={6}
-                      className="py-12 text-center text-sm text-muted-foreground"
-                    >
-                      Nenhum cliente cadastrado. Clique em "Novo Cliente" para começar.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  clientes.map((c) => {
-                    const cert = certMap.get(c.id);
-                    const st = certStatus(cert);
-                    return (
-                      <TableRow key={c.id}>
-                        <TableCell className="font-medium">{c.razao_social}</TableCell>
-                        <TableCell className="font-mono text-sm tabular-nums">
-                          {formatCnpj(c.cnpj)}
-                        </TableCell>
-                        <TableCell>
-                          {st ? (
-                            <div className="flex items-center gap-1.5">
-                              {st.variant === "success" ? (
-                                <ShieldCheck className="h-4 w-4 text-success" />
-                              ) : (
-                                <ShieldAlert className="h-4 w-4 text-destructive" />
-                              )}
-                              <Badge variant={st.variant}>{st.label}</Badge>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">Não cadastrado</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-sm">
-                          {cert ? (
-                            <span className={cn(st && st.dias <= 0 && "text-destructive")}>
-                              {formatDate(cert.validade)}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={c.ativo === false ? "secondary" : "success"}>
-                            {c.ativo === false ? "Inativo" : "Ativo"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setCertTarget(c.id)}
-                            >
-                              <Upload className="mr-1.5 h-4 w-4" />
-                              {cert ? "Atualizar" : "Enviar"}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-destructive hover:text-destructive"
-                              onClick={() => setDeleteTarget({ id: c.id, nome: c.razao_social })}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
+        {loading ? (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="rounded-[14px] p-5" style={{ background: "#fff", border: "1px solid #F1F5F9" }}>
+                <Skeleton className="h-5 w-3/4 mb-3" />
+                <Skeleton className="h-4 w-1/2 mb-2" />
+                <Skeleton className="h-4 w-2/3" />
+              </div>
+            ))}
           </div>
-        </Card>
+        ) : clientes.length === 0 ? (
+          <div className="rounded-[14px] py-16 text-center text-sm text-muted-foreground" style={{ background: "#fff", border: "1px solid #F1F5F9" }}>
+            Nenhum cliente cadastrado. Clique em "Novo Cliente" para começar.
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {clientes.map((c) => {
+              const cert = certMap.get(c.id);
+              const st = certStatus(cert);
+              return (
+                <div
+                  key={c.id}
+                  className="rounded-[14px] p-5 flex flex-col gap-3"
+                  style={{ background: "#fff", border: "1px solid #F1F5F9" }}
+                >
+                  {/* Header */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm leading-tight truncate" style={{ color: "#0F172A", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                        {c.razao_social}
+                      </p>
+                      <p className="text-xs font-mono tabular-nums mt-0.5" style={{ color: "#94A3B8" }}>
+                        {formatCnpj(c.cnpj)}
+                      </p>
+                    </div>
+                    <span
+                      className="shrink-0 text-xs font-semibold px-2.5 py-1 rounded-lg"
+                      style={c.ativo === false
+                        ? { background: "#F1F5F9", color: "#64748B" }
+                        : { background: "#DCFCE7", color: "#15803D" }}
+                    >
+                      {c.ativo === false ? "Inativo" : "Ativo"}
+                    </span>
+                  </div>
+
+                  {/* Cert info */}
+                  <div
+                    className="flex items-center gap-2.5 rounded-[10px] px-3 py-2.5"
+                    style={{ background: "#F8FAFC", border: "1px solid #F1F5F9" }}
+                  >
+                    {st ? (
+                      <>
+                        {st.variant === "success" ? (
+                          <ShieldCheck className="h-4 w-4 shrink-0" style={{ color: "#16A34A" }} />
+                        ) : (
+                          <ShieldAlert className="h-4 w-4 shrink-0" style={{ color: "#DC2626" }} />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold" style={{ color: "#0F172A" }}>{st.label}</p>
+                          {cert && (
+                            <p className="text-xs" style={{ color: st.dias <= 7 ? "#DC2626" : "#94A3B8" }}>
+                              Validade: {formatDate(cert.validade)}
+                            </p>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <FileKey className="h-4 w-4 shrink-0" style={{ color: "#94A3B8" }} />
+                        <p className="text-xs" style={{ color: "#94A3B8" }}>Certificado não cadastrado</p>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 text-xs"
+                      onClick={() => setCertTarget(c.id)}
+                    >
+                      <Upload className="mr-1.5 h-3.5 w-3.5" />
+                      {cert ? "Atualizar cert." : "Enviar cert."}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:text-destructive hover:bg-destructive/5"
+                      onClick={() => setDeleteTarget({ id: c.id, nome: c.razao_social })}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <NovoClienteDialog open={openCliente} onOpenChange={setOpenCliente} />

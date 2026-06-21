@@ -6,16 +6,18 @@ from .views import (
     ControleNSUViewSet,
     DocumentoViewSet,
     LogCapturaViewSet,
+    LogAuditoriaNSUViewSet,
     ManifestacaoViewSet,
 )
 
 router = DefaultRouter()
-router.register(r'escritorios',    EscritorioViewSet,    basename='escritorio')
-router.register(r'clientes',       ClienteViewSet,       basename='cliente')
-router.register(r'certificados',   CertificadoViewSet,   basename='certificado')
-router.register(r'controles-nsu',  ControleNSUViewSet,   basename='controle-nsu')
-router.register(r'documentos',     DocumentoViewSet,     basename='documento')
-router.register(r'logs-captura',   LogCapturaViewSet,    basename='logs-captura')
-router.register(r'manifestacoes',  ManifestacaoViewSet,  basename='manifestacao')
+router.register(r'escritorios',    EscritorioViewSet,       basename='escritorio')
+router.register(r'clientes',       ClienteViewSet,          basename='cliente')
+router.register(r'certificados',   CertificadoViewSet,      basename='certificado')
+router.register(r'controles-nsu',  ControleNSUViewSet,      basename='controle-nsu')
+router.register(r'documentos',     DocumentoViewSet,        basename='documento')
+router.register(r'logs-captura',   LogCapturaViewSet,       basename='logs-captura')
+router.register(r'auditoria-nsu',  LogAuditoriaNSUViewSet,  basename='auditoria-nsu')
+router.register(r'manifestacoes',  ManifestacaoViewSet,     basename='manifestacao')
 
 urlpatterns = router.urls

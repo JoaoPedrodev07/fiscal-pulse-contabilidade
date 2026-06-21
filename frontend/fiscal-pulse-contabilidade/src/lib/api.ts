@@ -16,6 +16,7 @@ import {
   mockUsers,
 } from "./mock-data";
 import type {
+  AuditoriaNSUResumo,
   Cliente,
   Certificado,
   ControleNSU,
@@ -331,6 +332,18 @@ export async function capturarNfseDireta(
 }
 
 // ----------------------------- DOCUMENTOS -----------------------------
+// GET /api/auditoria-nsu/resumo/?cliente=<id>&tipo_documento=NFSE
+export async function getAuditoriaNSUResumo(
+  clienteId?: number,
+  tipoDocumento?: string,
+): Promise<AuditoriaNSUResumo> {
+  const params = new URLSearchParams();
+  if (clienteId) params.set('cliente', String(clienteId));
+  if (tipoDocumento) params.set('tipo_documento', tipoDocumento);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return http<AuditoriaNSUResumo>(`/api/auditoria-nsu/resumo/${qs}`);
+}
+
 // GET /api/documentos/reconciliar/?cliente=<id>
 export async function reconciliar(clienteId?: number): Promise<ReconciliacaoItem[]> {
   const params = clienteId ? `?cliente=${clienteId}` : '';

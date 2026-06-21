@@ -17,12 +17,10 @@ import {
   AlertTriangle,
   Ban,
   CheckCircle2,
-  FileText,
-  ShieldCheck,
   XCircle,
 } from "lucide-react";
 
-import { AppShell } from "@/components/app-shell";
+import { AppShell, StatCard } from "@/components/app-shell";
 import { useAuth } from "@/lib/auth";
 import { listCertificados, listDocumentos, listLogs } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,7 +36,7 @@ import {
 import type { TipoDocumento } from "@/lib/types";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
-  head: () => ({ meta: [{ title: "Dashboard — Fiscal Tracker" }] }),
+  head: () => ({ meta: [{ title: "Dashboard — CaptaFiscal" }] }),
   component: DashboardPage,
 });
 
@@ -107,7 +105,7 @@ function DashboardPage() {
   const loading = docsQuery.isLoading || certsQuery.isLoading;
 
   return (
-    <AppShell title="Dashboard">
+    <AppShell title="Dashboard" subtitle={`Resumo de ${formatCompetencia(currentComp)}`}>
       <div className="space-y-6">
         {!loading && canceladosMes > 0 && (
           <Alert className="border-destructive/30 bg-destructive/5 [&>svg]:text-destructive">
@@ -143,40 +141,39 @@ function DashboardPage() {
           </Alert>
         )}
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard
+          <StatCard
             label="Notas no mês"
             value={loading ? null : String(totalMes)}
             hint={formatCompetencia(currentComp)}
-            icon={FileText}
-            tone="primary"
+            loading={loading}
           />
-          <MetricCard
+          <StatCard
             label="Certificados ativos"
             value={loading ? null : String(certAtivos)}
             hint={`${certs.length} no total`}
-            icon={ShieldCheck}
-            tone="success"
+            loading={loading}
+            hintColor="#16A34A"
           />
-          <MetricCard
+          <StatCard
             label="Certificados vencidos"
             value={loading ? null : String(certVencidos)}
             hint={certAlerta > 0 ? `${certAlerta} vencendo em 30 dias` : "Nenhum alerta"}
-            icon={AlertTriangle}
-            tone={certVencidos > 0 || certAlerta > 0 ? "danger" : "muted"}
+            loading={loading}
+            hintColor={certVencidos > 0 || certAlerta > 0 ? "#B45309" : "#94A3B8"}
           />
-          <MetricCard
+          <StatCard
             label="Canceladas no mês"
             value={loading ? null : String(canceladosMes)}
             hint={canceladosMes > 0 ? "Verificar na aba Documentos" : "Nenhuma cancelada"}
-            icon={Ban}
-            tone={canceladosMes > 0 ? "danger" : "muted"}
+            loading={loading}
+            hintColor={canceladosMes > 0 ? "#DC2626" : "#94A3B8"}
           />
         </div>
 
         <div className="grid gap-4 lg:grid-cols-5">
-          <Card className="lg:col-span-3">
+          <Card className="lg:col-span-3" style={{ border: "1px solid #F1F5F9" }}>
             <CardHeader>
-              <CardTitle className="text-base">Volume por competência</CardTitle>
+              <CardTitle className="text-base" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", color: "#0F172A" }}>Volume por competência</CardTitle>
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -203,9 +200,9 @@ function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="lg:col-span-2">
+          <Card className="lg:col-span-2" style={{ border: "1px solid #F1F5F9" }}>
             <CardHeader>
-              <CardTitle className="text-base">Distribuição por tipo</CardTitle>
+              <CardTitle className="text-base" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", color: "#0F172A" }}>Distribuição por tipo</CardTitle>
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -252,9 +249,9 @@ function DashboardPage() {
           </Card>
         </div>
 
-        <Card>
+        <Card style={{ border: "1px solid #F1F5F9" }}>
           <CardHeader>
-            <CardTitle className="text-base">Atividade recente de captura</CardTitle>
+            <CardTitle className="text-base" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", color: "#0F172A" }}>Atividade recente de captura</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {logsQuery.isLoading ? (
@@ -301,43 +298,3 @@ function DashboardPage() {
   );
 }
 
-function MetricCard({
-  label,
-  value,
-  hint,
-  icon: Icon,
-  tone,
-}: {
-  label: string;
-  value: string | null;
-  hint: string;
-  icon: typeof FileText;
-  tone: "primary" | "success" | "danger" | "muted";
-}) {
-  const toneMap: Record<string, string> = {
-    primary: "bg-primary/10 text-primary",
-    success: "bg-success/10 text-success",
-    danger: "bg-destructive/10 text-destructive",
-    muted: "bg-muted text-muted-foreground",
-  };
-  return (
-    <Card>
-      <CardContent className="flex items-center gap-4 p-5">
-        <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${toneMap[tone]}`}>
-          <Icon className="h-5 w-5" />
-        </div>
-        <div className="min-w-0">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {label}
-          </p>
-          {value === null ? (
-            <Skeleton className="mt-1 h-7 w-16" />
-          ) : (
-            <p className="text-2xl font-semibold leading-tight">{value}</p>
-          )}
-          <p className="truncate text-xs text-muted-foreground">{hint}</p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}

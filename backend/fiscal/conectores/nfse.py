@@ -34,7 +34,7 @@ from datetime import date
 from django.db import transaction
 from django.utils import timezone
 
-from fiscal.models import ControleNSU, Documento, Xml
+from fiscal.models import ControleNSU, Documento, LogAuditoriaNSU, Xml
 
 logger = logging.getLogger(__name__)
 
@@ -279,6 +279,18 @@ class NFSeADNCapturaService:
 
     # -- persistencia ----------------------------------------------------------
 
+    def _log_auditoria(self, nsu: int, resultado: str, chave: str = '') -> None:
+        try:
+            LogAuditoriaNSU.objects.create(
+                cliente=self.cliente,
+                tipo_documento='NFSE',
+                nsu=nsu,
+                resultado=resultado,
+                chave=chave,
+            )
+        except Exception as e:
+            logger.error('Falha ao gravar LogAuditoriaNSU NSU %s: %s', nsu, e)
+
     def _persistir_item(self, item: dict) -> None:
         """Persiste um item de LoteDFe. Idempotente via get_or_create por ChaveAcesso."""
         chave    = item.get('ChaveAcesso', item.get('chDFe', ''))
@@ -290,6 +302,7 @@ class NFSeADNCapturaService:
                 'NFS-e NSU %s [%s]: chave invalida len=%s valor="%s" -- ignorado.',
                 nsu_doc, self.cliente.cnpj, len(chave), chave,
             )
+            self._log_auditoria(nsu_doc, 'CHAVE_INVALIDA', chave)
             return
 
         if not xml_puro:
@@ -297,10 +310,12 @@ class NFSeADNCapturaService:
                 'NFS-e NSU %s [%s]: campo xml vazio -- ignorado.',
                 nsu_doc, self.cliente.cnpj,
             )
+            self._log_auditoria(nsu_doc, 'XML_VAZIO', chave)
             return
 
         xml_puro = self._decodificar_xml(xml_puro, nsu_doc)
         if not xml_puro:
+            self._log_auditoria(nsu_doc, 'XML_INVALIDO', chave)
             return
 
         # Parse unico: root alimenta extracao de campos e de status
@@ -345,13 +360,16 @@ class NFSeADNCapturaService:
                     for k, v in updates.items():
                         setattr(documento, k, v)
                     documento.save(update_fields=list(updates.keys()))
-            if criado:
+                self._log_auditoria(nsu_doc, 'DUPLICADO', chave)
+            else:
                 Xml.objects.create(documento=documento, conteudo=xml_puro)
-            elif not Xml.objects.filter(documento=documento).exists():
+                self._log_auditoria(nsu_doc, 'SALVO', chave)
+            if not criado and not Xml.objects.filter(documento=documento).exists():
                 Xml.objects.create(documento=documento, conteudo=xml_puro)
 
         except Exception as e:
             logger.error('Erro ao persistir NFS-e chave %s NSU %s: %s', chave[:10], nsu_doc, e)
+            self._log_auditoria(nsu_doc, 'ERRO_PERSISTENCIA', chave)
 
     # -- decodificacao base64+gzip ---------------------------------------------
 

@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { AlertCircle, Building2, Eye, EyeOff, Loader2, ReceiptText } from "lucide-react";
+import { AlertCircle, Building2, Eye, EyeOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { registrarEscritorio } from "@/lib/api";
@@ -9,8 +9,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+function CaptaFiscalLogo({ size = 32 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+      <defs>
+        <linearGradient id="cfRegGrad" x1="0" y1="0" x2="80" y2="80" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#1D4ED8" />
+          <stop offset="1" stopColor="#2563EB" />
+        </linearGradient>
+      </defs>
+      <rect width="80" height="80" rx="18" fill="url(#cfRegGrad)" />
+      <polyline points="28,36 34,42 52,24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export const Route = createFileRoute("/registro")({
-  head: () => ({ meta: [{ title: "Criar conta — Fiscal Tracker" }] }),
+  head: () => ({ meta: [{ title: "Criar conta — CaptaFiscal" }] }),
   component: RegistroPage,
 });
 
@@ -78,39 +93,39 @@ function RegistroPage() {
       {/* Brand panel */}
       <div className="relative hidden flex-col justify-between overflow-hidden bg-sidebar p-12 text-sidebar-foreground lg:flex">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
-            <ReceiptText className="h-6 w-6" />
-          </div>
+          <CaptaFiscalLogo size={36} />
           <div>
-            <p className="text-lg font-semibold leading-tight">Fiscal Tracker</p>
-            <p className="text-xs text-sidebar-foreground/60">Painel Fiscal</p>
+            <p className="text-lg font-semibold leading-tight" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+              Capta<span style={{ fontWeight: 800 }}>Fiscal</span>
+            </p>
+            <p className="text-xs" style={{ color: "rgba(203,213,225,0.6)" }}>Painel Fiscal</p>
           </div>
         </div>
 
         <div className="max-w-md space-y-5">
-          <h1 className="text-3xl font-semibold leading-tight">
+          <h1 className="text-3xl font-semibold leading-tight" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
             Seu escritório conectado à SEFAZ em minutos.
           </h1>
-          <p className="text-sm leading-relaxed text-sidebar-foreground/70">
+          <p className="text-sm leading-relaxed" style={{ color: "rgba(203,213,225,0.7)" }}>
             Cadastre seu escritório de contabilidade e comece a capturar NF-e, CT-e e NFS-e
             automaticamente para toda a sua carteira de clientes.
           </p>
-          <div className="space-y-3 text-sm text-sidebar-foreground/70">
+          <div className="space-y-3 text-sm" style={{ color: "rgba(203,213,225,0.7)" }}>
             {[
               "Captura automática a cada 1 hora",
               "Exportação em lote por competência",
               "Certificados A1 criptografados (LGPD)",
             ].map((item) => (
               <div key={item} className="flex items-center gap-2">
-                <div className="h-1.5 w-1.5 rounded-full bg-accent" />
+                <div className="h-1.5 w-1.5 rounded-full" style={{ background: "#2563EB" }} />
                 {item}
               </div>
             ))}
           </div>
         </div>
 
-        <p className="text-xs text-sidebar-foreground/40">
-          © {new Date().getFullYear()} Fiscal Tracker — Todos os direitos reservados.
+        <p className="text-xs" style={{ color: "rgba(203,213,225,0.4)" }}>
+          © {new Date().getFullYear()} CaptaFiscal — Todos os direitos reservados.
         </p>
       </div>
 
@@ -118,11 +133,11 @@ function RegistroPage() {
       <div className="flex items-center justify-center bg-background px-6 py-12">
         <div className="w-full max-w-sm space-y-7">
           {/* Logo mobile */}
-          <div className="flex items-center gap-2 lg:hidden">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <ReceiptText className="h-5 w-5" />
-            </div>
-            <span className="text-lg font-semibold">Fiscal Tracker</span>
+          <div className="flex items-center gap-2.5 lg:hidden">
+            <CaptaFiscalLogo size={32} />
+            <span className="text-lg font-semibold" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+              Capta<span style={{ fontWeight: 800 }}>Fiscal</span>
+            </span>
           </div>
 
           <div className="space-y-1">

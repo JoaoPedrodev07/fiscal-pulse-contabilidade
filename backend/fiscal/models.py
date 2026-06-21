@@ -267,3 +267,49 @@ class LogCaptura(models.Model):
     def __str__(self):
         flag = 'OK' if self.sucesso else 'ERRO'
         return f'[{flag}] {self.cliente} / {self.tipo_documento} em {self.executado_em:%Y-%m-%d %H:%M}'
+
+
+class ResultadoNSU(models.TextChoices):
+    SALVO             = 'SALVO',             'Documento salvo'
+    DUPLICADO         = 'DUPLICADO',         'Duplicado (já existia)'
+    CHAVE_INVALIDA    = 'CHAVE_INVALIDA',    'Chave inválida'
+    XML_VAZIO         = 'XML_VAZIO',         'XML vazio'
+    XML_INVALIDO      = 'XML_INVALIDO',      'XML indecodificável'
+    ERRO_PERSISTENCIA = 'ERRO_PERSISTENCIA', 'Erro ao persistir'
+
+
+class LogAuditoriaNSU(models.Model):
+    """
+    Rastrea o destino de cada NSU retornado pelo ADN.
+    Permite ao contador verificar por que um NSU específico não gerou documento.
+    """
+    cliente = models.ForeignKey(
+        Cliente,
+        on_delete=models.CASCADE,
+        related_name='logs_auditoria_nsu',
+        verbose_name='Cliente',
+    )
+    tipo_documento = models.CharField(
+        max_length=5,
+        choices=TipoDocumento.choices,
+        verbose_name='Tipo de Documento',
+    )
+    nsu      = models.BigIntegerField(verbose_name='NSU')
+    resultado = models.CharField(
+        max_length=20,
+        choices=ResultadoNSU.choices,
+        verbose_name='Resultado',
+    )
+    chave       = models.CharField(max_length=50, blank=True, verbose_name='Chave de Acesso')
+    executado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-executado_em', 'nsu']
+        indexes = [
+            models.Index(fields=['cliente', 'tipo_documento'], name='audit_nsu_cliente_tipo_idx'),
+        ]
+        verbose_name = 'Log de Auditoria NSU'
+        verbose_name_plural = 'Logs de Auditoria NSU'
+
+    def __str__(self):
+        return f'{self.cliente} / {self.tipo_documento} NSU {self.nsu} → {self.resultado}'

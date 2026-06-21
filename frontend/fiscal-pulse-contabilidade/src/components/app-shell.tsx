@@ -1,13 +1,12 @@
 import { useState, type ReactNode } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
-  Building2,
+  Download,
   FileText,
   LayoutDashboard,
   LogOut,
   Menu,
-  ReceiptText,
-  RefreshCw,
+  Users,
 } from "lucide-react";
 
 import { useAuth } from "@/lib/auth";
@@ -23,12 +22,36 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/carteira", label: "Carteira de Clientes", icon: Building2, staffOnly: true },
-  { to: "/documentos", label: "Documentos Capturados", icon: FileText },
-  { to: "/captura", label: "Captura / Sincronização", icon: RefreshCw, staffOnly: true },
+  { to: "/dashboard",  label: "Dashboard",   icon: LayoutDashboard },
+  { to: "/documentos", label: "Documentos",  icon: FileText },
+  { to: "/captura",    label: "Capturar",    icon: Download,   staffOnly: true },
+  { to: "/carteira",   label: "Clientes",    icon: Users,      staffOnly: true },
 ];
 
+/* ── Logo CaptaFiscal ──────────────────────────────────────────────── */
+function CaptaFiscalLogo({ size = 32 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+      <defs>
+        <linearGradient id="cfLogoGrad" x1="0" y1="0" x2="80" y2="80" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#1D4ED8" />
+          <stop offset="1" stopColor="#2563EB" />
+        </linearGradient>
+      </defs>
+      <rect width="80" height="80" rx="18" fill="url(#cfLogoGrad)" />
+      <polyline
+        points="28,36 34,42 52,24"
+        fill="none"
+        stroke="#fff"
+        strokeWidth="3.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/* ── Sidebar content ──────────────────────────────────────────────── */
 function SidebarContentInner({ onNavigate }: { onNavigate?: () => void }) {
   const { user, isStaff, logout } = useAuth();
   const navigate = useNavigate();
@@ -50,18 +73,23 @@ function SidebarContentInner({ onNavigate }: { onNavigate?: () => void }) {
     .toUpperCase();
 
   return (
-    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex items-center gap-3 px-5 py-5">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
-          <ReceiptText className="h-5 w-5" />
-        </div>
-        <div className="leading-tight">
-          <p className="font-semibold">Fiscal Tracker</p>
-          <p className="text-xs text-sidebar-foreground/55">Painel Fiscal</p>
-        </div>
+    <div
+      className="flex h-full flex-col overflow-y-auto"
+      style={{ background: "#0B1220", color: "#CBD5E1" }}
+    >
+      {/* Logo */}
+      <div className="flex items-center gap-2.5 px-6 py-6" style={{ borderBottom: "1px solid #1E293B" }}>
+        <CaptaFiscalLogo size={32} />
+        <span
+          className="font-semibold text-white"
+          style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 15 }}
+        >
+          CaptaFiscal
+        </span>
       </div>
 
-      <nav className="flex-1 space-y-1 px-3 py-2">
+      {/* Nav */}
+      <nav className="flex flex-col gap-1.5 flex-1 px-4 py-5">
         {items.map((item) => {
           const active = pathname.startsWith(item.to);
           return (
@@ -70,74 +98,211 @@ function SidebarContentInner({ onNavigate }: { onNavigate?: () => void }) {
               to={item.to}
               onClick={onNavigate}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                "flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-colors",
                 active
-                  ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
-                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                  ? "text-white"
+                  : "hover:text-white"
               )}
+              style={
+                active
+                  ? { background: "#2563EB", color: "#fff" }
+                  : { color: "#94A3B8" }
+              }
+              onMouseEnter={(e) => {
+                if (!active) {
+                  (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.04)";
+                  (e.currentTarget as HTMLElement).style.color = "#CBD5E1";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!active) {
+                  (e.currentTarget as HTMLElement).style.background = "transparent";
+                  (e.currentTarget as HTMLElement).style.color = "#94A3B8";
+                }
+              }}
             >
-              <item.icon className="h-4 w-4 shrink-0" />
+              <item.icon className="h-[18px] w-[18px] shrink-0" />
               {item.label}
             </Link>
           );
         })}
       </nav>
 
-      <div className="border-t border-sidebar-border p-3">
-        <div className="flex items-center gap-3 rounded-lg px-2 py-2">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-xs font-semibold">
+      {/* User + logout */}
+      <div className="px-4 pb-5" style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+        <div className="flex items-center gap-3 px-3 py-3 mt-3">
+          <div
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
+            style={{ background: "#2563EB" }}
+          >
             {initials}
           </div>
-          <div className="min-w-0 flex-1 leading-tight">
-            <p className="truncate text-sm font-medium" title={displayName}>
-              {displayName}
-            </p>
-            <p className="truncate text-xs text-sidebar-foreground/55">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-white">{displayName}</p>
+            <p className="truncate text-xs" style={{ color: "#64748B" }}>
               {isStaff ? "Escritório Contábil" : "Cliente Final"}
             </p>
           </div>
         </div>
-        <Button
-          variant="ghost"
+        <button
           onClick={handleLogout}
-          className="mt-1 w-full justify-start text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+          className="mt-1 flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-colors"
+          style={{ color: "#64748B" }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.04)";
+            (e.currentTarget as HTMLElement).style.color = "#CBD5E1";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.background = "transparent";
+            (e.currentTarget as HTMLElement).style.color = "#64748B";
+          }}
         >
-          <LogOut className="mr-2 h-4 w-4" />
+          <LogOut className="h-[18px] w-[18px] shrink-0" />
           Sair
-        </Button>
+        </button>
       </div>
     </div>
   );
 }
 
-export function AppShell({ title, children }: { title: string; children: ReactNode }) {
+/* ── AppShell ──────────────────────────────────────────────────────── */
+export function AppShell({
+  title,
+  subtitle,
+  headerRight,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  headerRight?: ReactNode;
+  children: ReactNode;
+}) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="flex min-h-screen w-full bg-background">
+    <div className="flex min-h-screen w-full" style={{ background: "#F8FAFC" }}>
       {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-sidebar-border lg:block">
+      <aside className="fixed inset-y-0 left-0 hidden w-64 lg:block" style={{ borderRight: "1px solid #1E293B" }}>
         <SidebarContentInner />
       </aside>
 
       <div className="flex min-h-screen w-full flex-col lg:pl-64">
-        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur lg:px-8">
-          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-            <SheetTrigger asChild>
-              <Button variant="outline" size="icon" className="lg:hidden">
-                <Menu className="h-5 w-5" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="left" className="w-64 border-sidebar-border p-0">
-              <SheetTitle className="sr-only">Menu de navegação</SheetTitle>
-              <SidebarContentInner onNavigate={() => setMobileOpen(false)} />
-            </SheetContent>
-          </Sheet>
-          <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
+        {/* Top bar */}
+        <header
+          className="sticky top-0 z-20 flex items-center justify-between gap-4 px-8 py-5"
+          style={{ background: "#fff", borderBottom: "1px solid #E2E8F0" }}
+        >
+          <div className="flex items-center gap-4">
+            {/* Mobile menu trigger */}
+            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="icon" className="lg:hidden">
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-64 border-0 p-0">
+                <SheetTitle className="sr-only">Menu de navegação</SheetTitle>
+                <SidebarContentInner onNavigate={() => setMobileOpen(false)} />
+              </SheetContent>
+            </Sheet>
+
+            <div>
+              <h1
+                className="font-bold leading-tight"
+                style={{
+                  fontFamily: "'Plus Jakarta Sans', sans-serif",
+                  fontSize: 28,
+                  color: "#0F172A",
+                  margin: 0,
+                }}
+              >
+                {title}
+              </h1>
+              {subtitle && (
+                <p className="mt-0.5 text-sm" style={{ color: "#94A3B8" }}>
+                  {subtitle}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {headerRight && <div className="flex items-center gap-3">{headerRight}</div>}
         </header>
 
-        <main className="flex-1 px-4 py-6 lg:px-8 lg:py-8">{children}</main>
+        <main className="flex-1 px-8 py-8">{children}</main>
       </div>
     </div>
+  );
+}
+
+/* ── Stat card helper (exported for pages to use) ──────────────────── */
+export function StatCard({
+  label,
+  value,
+  hint,
+  hintColor = "#94A3B8",
+  loading = false,
+}: {
+  label: string;
+  value: string | null;
+  hint?: string;
+  hintColor?: string;
+  loading?: boolean;
+}) {
+  return (
+    <div
+      className="rounded-[14px] p-5"
+      style={{ background: "#fff", border: "1px solid #F1F5F9" }}
+    >
+      <div
+        className="text-xs font-semibold uppercase tracking-wide"
+        style={{ color: "#94A3B8", letterSpacing: "0.3px" }}
+      >
+        {label}
+      </div>
+      {loading || value === null ? (
+        <div className="mt-2 h-8 w-20 animate-pulse rounded" style={{ background: "#F1F5F9" }} />
+      ) : (
+        <div
+          className="mt-2 font-extrabold leading-tight"
+          style={{
+            fontFamily: "'Plus Jakarta Sans', sans-serif",
+            fontSize: 32,
+            color: "#0F172A",
+          }}
+        >
+          {value}
+        </div>
+      )}
+      {hint && (
+        <div className="mt-1.5 text-xs" style={{ color: hintColor }}>
+          {hint}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── StatusPill (dot + label) ──────────────────────────────────────── */
+export function StatusPill({
+  label,
+  bg,
+  color,
+}: {
+  label: string;
+  bg: string;
+  color: string;
+}) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+      style={{ background: bg, color }}
+    >
+      <span
+        className="h-1.5 w-1.5 rounded-full"
+        style={{ background: "currentColor", opacity: 0.8 }}
+      />
+      {label}
+    </span>
   );
 }

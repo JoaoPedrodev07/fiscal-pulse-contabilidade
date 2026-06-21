@@ -143,6 +143,7 @@ function buildDocuments(): Documento[] {
         competencia,
         status,
         papel_nfse: tipo === "NFSE" ? (seed % 2 === 0 ? "TOMADOR" : "EMITENTE") : "",
+        divergencia_competencia: false,
       });
     }
   }

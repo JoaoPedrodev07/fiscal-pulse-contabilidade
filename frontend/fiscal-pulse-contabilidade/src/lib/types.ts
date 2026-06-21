@@ -95,6 +95,19 @@ export interface ReconciliacaoItem {
   atualizado_em: string;
 }
 
+export type ResultadoNSU =
+  | "SALVO"
+  | "DUPLICADO"
+  | "CHAVE_INVALIDA"
+  | "XML_VAZIO"
+  | "XML_INVALIDO"
+  | "ERRO_PERSISTENCIA";
+
+export interface AuditoriaNSUResumo {
+  total: number;
+  por_resultado: Partial<Record<ResultadoNSU, number>>;
+}
+
 export interface NovoClienteInput {
   cnpj: string;
   razao_social: string;

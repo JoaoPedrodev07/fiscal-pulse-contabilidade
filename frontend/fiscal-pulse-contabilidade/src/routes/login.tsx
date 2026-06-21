@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { AlertCircle, Eye, EyeOff, Loader2, ReceiptText, ShieldCheck } from "lucide-react";
+import { AlertCircle, Eye, EyeOff, Loader2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { useAuth } from "@/lib/auth";
@@ -9,9 +9,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+function CaptaFiscalLogo({ size = 32 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+      <defs>
+        <linearGradient id="cfLoginGrad" x1="0" y1="0" x2="80" y2="80" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#1D4ED8" />
+          <stop offset="1" stopColor="#2563EB" />
+        </linearGradient>
+      </defs>
+      <rect width="80" height="80" rx="18" fill="url(#cfLoginGrad)" />
+      <polyline points="28,36 34,42 52,24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export const Route = createFileRoute("/login")({
   head: () => ({
-    meta: [{ title: "Entrar — Fiscal Tracker" }],
+    meta: [{ title: "Entrar — CaptaFiscal" }],
   }),
   component: LoginPage,
 });
@@ -71,31 +86,34 @@ function LoginPage() {
       {/* Brand panel */}
       <div className="relative hidden flex-col justify-between overflow-hidden bg-sidebar p-12 text-sidebar-foreground lg:flex">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
-            <ReceiptText className="h-6 w-6" />
-          </div>
+          <CaptaFiscalLogo size={36} />
           <div>
-            <p className="text-lg font-semibold leading-tight">Fiscal Tracker</p>
-            <p className="text-xs text-sidebar-foreground/60">Painel Fiscal</p>
+            <p className="text-lg font-semibold leading-tight" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+              Capta<span style={{ fontWeight: 800 }}>Fiscal</span>
+            </p>
+            <p className="text-xs" style={{ color: "rgba(203,213,225,0.6)" }}>Painel Fiscal</p>
           </div>
         </div>
 
         <div className="max-w-md space-y-5">
-          <h1 className="text-3xl font-semibold leading-tight">
+          <h1 className="text-3xl font-semibold leading-tight" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
             Captura fiscal automática, sem dor de cabeça.
           </h1>
-          <p className="text-sm leading-relaxed text-sidebar-foreground/70">
+          <p className="text-sm leading-relaxed" style={{ color: "rgba(203,213,225,0.7)" }}>
             Centralize a captura de NF-e, CT-e, NFS-e e NFC-e, monitore certificados digitais A1 e
             exporte pacotes de notas por competência em poucos cliques.
           </p>
-          <div className="flex items-center gap-2 rounded-lg border border-sidebar-border bg-sidebar-accent/40 p-3 text-xs text-sidebar-foreground/70">
-            <ShieldCheck className="h-4 w-4 shrink-0 text-accent" />
+          <div
+            className="flex items-center gap-2 rounded-xl p-3 text-xs"
+            style={{ border: "1px solid #1E293B", background: "rgba(255,255,255,0.04)", color: "rgba(203,213,225,0.7)" }}
+          >
+            <ShieldCheck className="h-4 w-4 shrink-0" style={{ color: "#2563EB" }} />
             Certificados criptografados e usados apenas em comunicação interna assinada (LGPD).
           </div>
         </div>
 
-        <p className="text-xs text-sidebar-foreground/40">
-          © {new Date().getFullYear()} Fiscal Tracker — Todos os direitos reservados.
+        <p className="text-xs" style={{ color: "rgba(203,213,225,0.4)" }}>
+          © {new Date().getFullYear()} CaptaFiscal — Todos os direitos reservados.
         </p>
       </div>
 
@@ -104,16 +122,16 @@ function LoginPage() {
         <div className="w-full max-w-sm space-y-8">
           {/* Logo mobile */}
           <div className="space-y-2 lg:hidden">
-            <div className="flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <ReceiptText className="h-5 w-5" />
-              </div>
-              <span className="text-lg font-semibold">Fiscal Tracker</span>
+            <div className="flex items-center gap-2.5">
+              <CaptaFiscalLogo size={32} />
+              <span className="text-lg font-semibold" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                Capta<span style={{ fontWeight: 800 }}>Fiscal</span>
+              </span>
             </div>
           </div>
 
           <div className="space-y-1">
-            <h2 className="text-2xl font-semibold tracking-tight">Acessar painel</h2>
+            <h2 className="text-2xl font-semibold tracking-tight" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Acessar painel</h2>
             <p className="text-sm text-muted-foreground">
               Entre com suas credenciais para continuar.
             </p>
@@ -177,7 +195,7 @@ function LoginPage() {
             </Button>
 
             <p className="text-center text-sm text-muted-foreground">
-              Novo no Fiscal Tracker?{" "}
+              Novo no CaptaFiscal?{" "}
               <Link to="/registro" className="font-medium text-primary hover:underline">
                 Criar conta
               </Link>

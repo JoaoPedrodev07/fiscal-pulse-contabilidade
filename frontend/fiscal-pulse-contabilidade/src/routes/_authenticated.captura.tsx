@@ -15,7 +15,7 @@ import { toast } from "sonner";
 
 import { AppShell } from "@/components/app-shell";
 import { useAuth } from "@/lib/auth";
-import { capturarNfseDireta, executarCaptura, listClientes, listLogs, listNSU, reconciliar } from "@/lib/api";
+import { capturarNfseDireta, executarCaptura, getAuditoriaNSUResumo, listClientes, listLogs, listNSU, reconciliar } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { formatCnpj, formatDateTime } from "@/lib/format";
-import type { Cliente, ControleNSU, ReconciliacaoItem } from "@/lib/types";
+import type { AuditoriaNSUResumo, Cliente, ControleNSU, ReconciliacaoItem } from "@/lib/types";
 import {
   Select,
   SelectContent,
@@ -42,7 +42,7 @@ import {
 } from "@/components/ui/table";
 
 export const Route = createFileRoute("/_authenticated/captura")({
-  head: () => ({ meta: [{ title: "Captura / Sincronização — Fiscal Tracker" }] }),
+  head: () => ({ meta: [{ title: "Captura / Sincronização — CaptaFiscal" }] }),
   component: CapturaPage,
 });
 
@@ -68,6 +68,11 @@ function CapturaPage() {
   const reconciliacaoQuery = useQuery({
     queryKey: ["reconciliacao"],
     queryFn: () => reconciliar(),
+    enabled: isStaff,
+  });
+  const auditoriaQuery = useQuery({
+    queryKey: ["auditoria-nsu"],
+    queryFn: () => getAuditoriaNSUResumo(),
     enabled: isStaff,
   });
 
@@ -111,7 +116,7 @@ function CapturaPage() {
   }
 
   return (
-    <AppShell title="Captura / Sincronização">
+    <AppShell title="Captura / Sincronização" subtitle="Integre com SEFAZ ou dispare captura manual">
       <div className="space-y-5">
         <Alert className="border-primary/30 bg-primary/5">
           <Info className="h-4 w-4 text-primary" />
@@ -228,6 +233,12 @@ function CapturaPage() {
 
         {/* Painel NFS-e — fallback cirúrgico */}
         <NfsePanel clientes={clientes} onSettled={invalidarDados} />
+
+        {/* Auditoria NSU */}
+        <AuditoriaCard
+          isLoading={auditoriaQuery.isLoading}
+          resumo={auditoriaQuery.data}
+        />
 
         {/* Painel de Reconciliação NSU */}
         <Card>
@@ -458,6 +469,118 @@ function CapturaButton({
       )}
       {mutation.isPending ? "Capturando…" : "Capturar agora"}
     </Button>
+  );
+}
+
+// ── Auditoria NSU ────────────────────────────────────────────────────────────
+
+const RESULTADO_LABEL: Record<string, string> = {
+  SALVO:             'Documentos salvos',
+  DUPLICADO:         'Já existiam no banco',
+  CHAVE_INVALIDA:    'Chave inválida',
+  XML_VAZIO:         'XML vazio',
+  XML_INVALIDO:      'XML indecodificável',
+  ERRO_PERSISTENCIA: 'Erro ao persistir',
+};
+
+const RESULTADO_VARIANT: Record<string, 'success' | 'outline' | 'warning' | 'destructive'> = {
+  SALVO:             'success',
+  DUPLICADO:         'outline',
+  CHAVE_INVALIDA:    'warning',
+  XML_VAZIO:         'warning',
+  XML_INVALIDO:      'destructive',
+  ERRO_PERSISTENCIA: 'destructive',
+};
+
+function AuditoriaCard({
+  isLoading,
+  resumo,
+}: {
+  isLoading: boolean;
+  resumo?: AuditoriaNSUResumo;
+}) {
+  const salvos     = resumo?.por_resultado?.SALVO ?? 0;
+  const descartados = resumo
+    ? resumo.total - salvos - (resumo.por_resultado?.DUPLICADO ?? 0)
+    : 0;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base">Auditoria NSU — destino de cada nota recebida</CardTitle>
+          {!isLoading && resumo && resumo.total === 0 && (
+            <Badge variant="outline" className="text-xs">Sem registros ainda</Badge>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          Mostra o que aconteceu com cada NSU retornado pelo ADN da SEFAZ,
+          incluindo os que não geraram documento.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-full" />
+            <Skeleton className="h-5 w-3/4" />
+          </div>
+        ) : !resumo || resumo.total === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nenhum NSU auditado ainda. Os registros aparecem após a próxima captura automática.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {/* Resumo numérico rápido */}
+            <div className="flex flex-wrap gap-4 text-sm">
+              <span>
+                <span className="font-semibold tabular-nums">{resumo.total.toLocaleString('pt-BR')}</span>
+                {' '}NSUs processados
+              </span>
+              <span className="text-success font-medium">
+                <span className="tabular-nums">{salvos.toLocaleString('pt-BR')}</span> salvos
+              </span>
+              {descartados > 0 && (
+                <span className="text-warning font-medium">
+                  <span className="tabular-nums">{descartados.toLocaleString('pt-BR')}</span> descartados
+                </span>
+              )}
+            </div>
+
+            {/* Breakdown por resultado */}
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Resultado</TableHead>
+                  <TableHead className="text-right">Quantidade</TableHead>
+                  <TableHead className="text-right w-24">%</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {Object.entries(resumo.por_resultado)
+                  .sort(([, a], [, b]) => b - a)
+                  .map(([resultado, total]) => (
+                    <TableRow key={resultado}>
+                      <TableCell>
+                        <Badge variant={RESULTADO_VARIANT[resultado] ?? 'outline'}>
+                          {RESULTADO_LABEL[resultado] ?? resultado}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums font-medium">
+                        {total.toLocaleString('pt-BR')}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-muted-foreground">
+                        {resumo.total > 0
+                          ? `${((total / resumo.total) * 100).toFixed(1)}%`
+                          : '—'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

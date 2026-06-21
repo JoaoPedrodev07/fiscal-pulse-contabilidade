@@ -11,7 +11,7 @@ from rest_framework.filters import SearchFilter
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django_filters.rest_framework import DjangoFilterBackend
 
-from .models import Cliente, Certificado, ControleNSU, Documento, Escritorio, LogCaptura, Manifestacao
+from .models import Cliente, Certificado, ControleNSU, Documento, Escritorio, LogCaptura, LogAuditoriaNSU, Manifestacao
 from .serializers import (
     ClienteSerializer,
     CertificadoSerializer,
@@ -21,6 +21,7 @@ from .serializers import (
     DocumentoSerializer,
     DocumentoDetalheSerializer,
     LogCapturaSerializer,
+    LogAuditoriaNSUSerializer,
     ManifestacaoSerializer,
 )
 from .filters import DocumentoFilter
@@ -305,6 +306,42 @@ class LogCapturaViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         qs = LogCaptura.objects.select_related('cliente').all()
         return _qs_por_escritorio(qs, self.request.user)
+
+
+class LogAuditoriaNSUViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    GET /api/auditoria-nsu/ — histórico de resultados por NSU.
+    GET /api/auditoria-nsu/resumo/ — contagens agregadas por resultado (para o card do frontend).
+    """
+    serializer_class = LogAuditoriaNSUSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = LogAuditoriaNSU.objects.select_related('cliente').all()
+        cliente_id = self.request.query_params.get('cliente')
+        tipo = self.request.query_params.get('tipo_documento')
+        if cliente_id:
+            qs = qs.filter(cliente_id=cliente_id)
+        if tipo:
+            qs = qs.filter(tipo_documento=tipo)
+        return _qs_por_escritorio(qs, self.request.user)
+
+    @action(detail=False, methods=['get'], url_path='resumo')
+    def resumo(self, request):
+        """
+        GET /api/auditoria-nsu/resumo/?cliente=<id>&tipo_documento=NFSE
+
+        Retorna contagens por resultado para exibição no card de auditoria NSU.
+        """
+        from django.db.models import Count
+        qs = self.get_queryset()
+        contagens = qs.values('resultado').annotate(total=Count('id'))
+        por_resultado = {item['resultado']: item['total'] for item in contagens}
+        total = sum(por_resultado.values())
+        return Response({
+            'total': total,
+            'por_resultado': por_resultado,
+        })
 
 
 class ManifestacaoViewSet(viewsets.ReadOnlyModelViewSet):

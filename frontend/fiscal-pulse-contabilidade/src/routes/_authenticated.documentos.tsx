@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { AppShell } from "@/components/app-shell";
+import { AppShell, StatusPill } from "@/components/app-shell";
 import { useAuth } from "@/lib/auth";
 import {
   downloadXml,
@@ -32,7 +32,6 @@ import {
   formatCompetencia,
   formatCurrency,
   formatDate,
-  statusBadgeVariant,
 } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -58,12 +57,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/documentos")({
-  head: () => ({ meta: [{ title: "Documentos Capturados — Fiscal Tracker" }] }),
+  head: () => ({ meta: [{ title: "Documentos Capturados — CaptaFiscal" }] }),
   component: DocumentosPage,
 });
 
 const PAGE_SIZE = 50;
 const ALL = "__all__";
+
+const STATUS_PILL_MAP: Record<string, { bg: string; color: string }> = {
+  CAPTURADO:   { bg: "#EFF6FF", color: "#1D4ED8" },
+  MANIFESTADO: { bg: "#FEF9C3", color: "#92400E" },
+  COMPLETO:    { bg: "#DCFCE7", color: "#15803D" },
+  CANCELADO:   { bg: "#FEE2E2", color: "#B91C1C" },
+  SUBSTITUIDO: { bg: "#F3F4F6", color: "#374151" },
+};
 
 function DocumentosPage() {
   const { isStaff, user } = useAuth();
@@ -178,7 +185,7 @@ function DocumentosPage() {
   }
 
   return (
-    <AppShell title="Documentos Capturados">
+    <AppShell title="Documentos Capturados" subtitle="Consulte, filtre e exporte documentos fiscais">
       <div className="space-y-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
@@ -398,9 +405,10 @@ function DocumentosPage() {
                         {formatCompetencia(doc.competencia)}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={statusBadgeVariant(doc.status)}>
-                          {STATUS_LABEL[doc.status]}
-                        </Badge>
+                        <StatusPill
+                          label={STATUS_LABEL[doc.status]}
+                          {...STATUS_PILL_MAP[doc.status] ?? { bg: "#F1F5F9", color: "#64748B" }}
+                        />
                       </TableCell>
                       <TableCell className="text-right">
                         <Button

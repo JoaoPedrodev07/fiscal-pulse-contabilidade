@@ -2,7 +2,7 @@ import datetime
 import re
 
 from rest_framework import serializers
-from .models import Cliente, Certificado, ControleNSU, Documento, Escritorio, Xml, LogCaptura, Manifestacao
+from .models import Cliente, Certificado, ControleNSU, Documento, Escritorio, Xml, LogCaptura, LogAuditoriaNSU, Manifestacao
 
 
 class EscritorioSerializer(serializers.ModelSerializer):
@@ -197,6 +197,15 @@ class LogCapturaSerializer(serializers.ModelSerializer):
     class Meta:
         model = LogCaptura
         fields = ['id', 'cliente', 'cliente_nome', 'tipo_documento', 'sucesso', 'mensagem', 'executado_em']
+        read_only_fields = ['id', 'executado_em']
+
+
+class LogAuditoriaNSUSerializer(serializers.ModelSerializer):
+    cliente_nome = serializers.CharField(source='cliente.razao_social', read_only=True)
+
+    class Meta:
+        model = LogAuditoriaNSU
+        fields = ['id', 'cliente', 'cliente_nome', 'tipo_documento', 'nsu', 'resultado', 'chave', 'executado_em']
         read_only_fields = ['id', 'executado_em']
 
 
