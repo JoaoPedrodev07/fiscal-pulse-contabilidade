@@ -12,13 +12,7 @@ import { Label } from "@/components/ui/label";
 function CaptaFiscalLogo({ size = 32 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-      <defs>
-        <linearGradient id="cfRegGrad" x1="0" y1="0" x2="80" y2="80" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#1D4ED8" />
-          <stop offset="1" stopColor="#2563EB" />
-        </linearGradient>
-      </defs>
-      <rect width="80" height="80" rx="18" fill="url(#cfRegGrad)" />
+      <rect width="80" height="80" rx="18" fill="#2563EB" />
       <polyline points="28,36 34,42 52,24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
@@ -95,7 +89,7 @@ function RegistroPage() {
         <div className="flex items-center gap-3">
           <CaptaFiscalLogo size={36} />
           <div>
-            <p className="text-lg font-semibold leading-tight" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+            <p className="text-lg font-semibold leading-tight" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} translate="no">
               Capta<span style={{ fontWeight: 800 }}>Fiscal</span>
             </p>
             <p className="text-xs" style={{ color: "rgba(203,213,225,0.6)" }}>Painel Fiscal</p>
@@ -135,7 +129,7 @@ function RegistroPage() {
           {/* Logo mobile */}
           <div className="flex items-center gap-2.5 lg:hidden">
             <CaptaFiscalLogo size={32} />
-            <span className="text-lg font-semibold" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+            <span className="text-lg font-semibold" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }} translate="no">
               Capta<span style={{ fontWeight: 800 }}>Fiscal</span>
             </span>
           </div>

@@ -32,13 +32,7 @@ const NAV_ITEMS: NavItem[] = [
 function CaptaFiscalLogo({ size = 32 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-      <defs>
-        <linearGradient id="cfLogoGrad" x1="0" y1="0" x2="80" y2="80" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#1D4ED8" />
-          <stop offset="1" stopColor="#2563EB" />
-        </linearGradient>
-      </defs>
-      <rect width="80" height="80" rx="18" fill="url(#cfLogoGrad)" />
+      <rect width="80" height="80" rx="18" fill="#2563EB" />
       <polyline
         points="28,36 34,42 52,24"
         fill="none"
@@ -83,6 +77,7 @@ function SidebarContentInner({ onNavigate }: { onNavigate?: () => void }) {
         <span
           className="font-semibold text-white"
           style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 15 }}
+          translate="no"
         >
           CaptaFiscal
         </span>
