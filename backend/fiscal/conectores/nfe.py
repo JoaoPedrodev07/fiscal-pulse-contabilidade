@@ -61,7 +61,10 @@ class NFeCapturaService:
         except NotImplementedError:
             return "NAO_IMPLEMENTADO"
         except Exception as e:
-            logger.error(f"Falha na comunicação SEFAZ: {str(e)}")
+            logger.error(
+                '[NFE-001] Falha de comunicação SEFAZ cliente=%s cnpj=%s nsu=%s erro=%s',
+                self.cliente.razao_social, self.cliente.cnpj, controle.ultimo_nsu, e,
+            )
             return "ERRO_CONEXAO"
 
         if resposta.status_code != 200:
@@ -141,7 +144,10 @@ class NFeCapturaService:
                             status_doc = 'COMPLETO'
 
                     except ET.ParseError:
-                        logger.warning(f"Erro de parser/encoding no conteúdo do NSU {nsu_doc} de NF-e.")
+                        logger.warning(
+                            '[NFE-002] XML corrompido NSU=%s cliente=%s — ignorado.',
+                            nsu_doc, self.cliente.cnpj,
+                        )
                         continue
 
                     # IDEMPOTÊNCIA: Garante o get_or_create
@@ -173,7 +179,10 @@ class NFeCapturaService:
                             manifestar_documento(self.con, documento)
 
                     except Exception as e:
-                        logger.error(f"Erro ao persistir Documento no ORM: {str(e)}")
+                        logger.error(
+                            '[NFE-003] Falha ao persistir NF-e chave=%.10s... NSU=%s cliente=%s erro=%s',
+                            chave, nsu_doc, self.cliente.cnpj, e,
+                        )
                         continue
 
                 # Atualiza os ponteiros de controle após o loop das notas
@@ -189,7 +198,7 @@ class NFeCapturaService:
             return "REJEITADO"
 
         except ET.ParseError:
-            logger.error("Erro Crítico: XML do lote corrompido.")
+            logger.error('[NFE-004] XML do lote corrompido cliente=%s cnpj=%s', self.cliente.razao_social, self.cliente.cnpj)
             return "XML_CORROMPIDO"
 
     def _processar_evento(self, xml_puro: str, nsu_doc: str) -> None:

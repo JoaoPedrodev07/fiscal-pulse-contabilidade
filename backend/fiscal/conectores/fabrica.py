@@ -3,11 +3,15 @@ Fábrica de conectores SEFAZ.
 
 Comunicação fiscal usa apenas requests + cryptography:
 - NFS-e: REST mTLS via ADN (requests)
-- NF-e / CT-e: SOAP ainda não implementado sem pynfe
+- NF-e / CT-e: SOAP distNSU via SOAP 1.2 + mTLS (requests)
 """
+import contextlib
 import logging
 import os
 import tempfile
+import xml.etree.ElementTree as ET
+
+import requests
 
 from fiscal.models import Certificado as CertificadoModel
 from fiscal.services.cofre import decrypt_a1
@@ -22,9 +26,39 @@ _UF_CODIGO = {
     'sp': 35, 'se': 28, 'to': 17,
 }
 
+_URL_NFE = {
+    True:  'https://hom1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx',
+    False: 'https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx',
+}
+_URL_CTE = {
+    True:  'https://homologacao.cte.fazenda.gov.br/CTeDistribuicaoDFe/CTeDistribuicaoDFe.asmx',
+    False: 'https://www.cte.fazenda.gov.br/CTeDistribuicaoDFe/CTeDistribuicaoDFe.asmx',
+}
+
+_SOAP_ACTION_NFE = 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe/nfeDistDFeInteresse'
+_SOAP_ACTION_CTE = 'http://www.portalfiscal.inf.br/cte/wsdl/CTeDistribuicaoDFe/cteDistDFeInteresse'
+
+_TP_AMB = {True: '2', False: '1'}  # 2=homologação, 1=produção
+
+
+def _extrair_conteudo_soap(texto_soap: str) -> str:
+    """
+    Extrai o retDistDFeInt da resposta SOAP da SEFAZ como string XML.
+    Retorna o texto original como fallback se não encontrar ou se não for XML.
+    """
+    try:
+        root = ET.fromstring(texto_soap.encode('utf-8'))
+        for el in root.iter():
+            local = el.tag.split('}')[-1] if '}' in el.tag else el.tag
+            if local == 'retDistDFeInt':
+                return ET.tostring(el, encoding='unicode')
+        return texto_soap
+    except ET.ParseError:
+        return texto_soap
+
 
 class _RespostaAdapter:
-    """Interface .status_code/.text compatível com NFeCapturaService."""
+    """Interface .status_code/.text compatível com NFeCapturaService e CTeCapturaService."""
     status_code = 200
 
     def __init__(self, texto: str):
@@ -36,7 +70,7 @@ class ConectorSefaz:
     Adapter que mantém o PFX descriptografado em RAM e expõe os métodos
     de consulta usados pelos serviços de captura.
 
-    O PFX é gravado em disco APENAS durante chamadas REST (PEM temporário)
+    O PFX é gravado em disco APENAS durante chamadas (PEM temporário)
     e deletado imediatamente no bloco finally.
     """
 
@@ -47,32 +81,14 @@ class ConectorSefaz:
         self._codigo_uf = codigo_uf
         self._homologacao = homologacao
 
-    # ── NF-e ────────────────────────────────────────────────────────────────
+    # ── Utilitários de certificado ───────────────────────────────────────────
 
-    def consulta_notas_cnpj(self, cnpj: str, nsu: int) -> _RespostaAdapter:
-        """distNSU NF-e via SOAP — pendente de implementação sem pynfe."""
-        raise NotImplementedError(
-            'NF-e SOAP não implementado. pynfe foi removido. '
-            'Implemente via requests+zeep ou biblioteca SOAP pura.'
-        )
-
-    # ── CT-e ────────────────────────────────────────────────────────────────
-
-    def consulta_ctes_cnpj(self, cnpj: str, nsu: int) -> _RespostaAdapter:
-        """distNSU CT-e via SOAP — pendente de implementação sem pynfe."""
-        raise NotImplementedError(
-            'CT-e SOAP não implementado. pynfe foi removido. '
-            'Implemente via requests+zeep ou biblioteca SOAP pura.'
-        )
-
-    # ── NFS-e REST ADN ───────────────────────────────────────────────────────
-
-    def enviar_requisicao_rest_mtls(self, url: str, metodo: str = 'GET') -> object:
+    @contextlib.contextmanager
+    def _extrair_pem_temp(self):
         """
-        Requisição REST com mTLS usando PFX em memória.
-        PEM extraído on-the-fly via cryptography, dois temp files deletados no finally.
+        Context manager: extrai cert+chave PEM do PKCS12 para arquivos temporários.
+        Garante deleção mesmo em exceção. Yields (cert_path, key_path).
         """
-        import requests
         from cryptography.hazmat.primitives.serialization import (
             Encoding, NoEncryption, PrivateFormat,
         )
@@ -94,7 +110,7 @@ class ConectorSefaz:
             os.close(fd_cert)
             os.write(fd_key, key_pem)
             os.close(fd_key)
-            return requests.request(metodo, url, cert=(cert_path, key_path), timeout=30)
+            yield cert_path, key_path
         finally:
             for path in (cert_path, key_path):
                 try:
@@ -102,19 +118,104 @@ class ConectorSefaz:
                 except OSError:
                     pass
 
+    def _soap_mtls(self, url: str, envelope: str, soap_action: str) -> '_RespostaAdapter':
+        """
+        Envia envelope SOAP via POST mTLS.
+        Propaga requests.exceptions.* sem silenciar — quem chama decide o tratamento.
+        """
+        headers = {
+            'Content-Type': 'application/soap+xml; charset=utf-8',
+            'SOAPAction': soap_action,
+        }
+        with self._extrair_pem_temp() as (cert_path, key_path):
+            resp = requests.post(
+                url,
+                data=envelope.encode('utf-8'),
+                headers=headers,
+                cert=(cert_path, key_path),
+                timeout=30,
+            )
+
+        conteudo = _extrair_conteudo_soap(resp.text)
+        adapter = _RespostaAdapter(conteudo)
+        adapter.status_code = resp.status_code
+        return adapter
+
+    # ── NF-e ────────────────────────────────────────────────────────────────
+
+    def consulta_notas_cnpj(self, cnpj: str, nsu: int) -> '_RespostaAdapter':
+        """distNSU NF-e via SOAP 1.2 + mTLS."""
+        nsu_fmt = f'{nsu:015d}'
+        tp_amb = _TP_AMB[self._homologacao]
+        envelope = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">'
+            '<soap12:Body>'
+            '<nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe">'
+            f'<distDFeInt versao="1.01" xmlns="http://www.portalfiscal.inf.br/nfe">'
+            f'<tpAmb>{tp_amb}</tpAmb>'
+            f'<cUFAutor>{self._codigo_uf}</cUFAutor>'
+            f'<CNPJ>{cnpj}</CNPJ>'
+            '<distNSU>'
+            f'<ultNSU>{nsu_fmt}</ultNSU>'
+            '</distNSU>'
+            '</distDFeInt>'
+            '</nfeDadosMsg>'
+            '</soap12:Body>'
+            '</soap12:Envelope>'
+        )
+        logger.info(
+            '[NFE-SOAP] distNSU cnpj=%.8s... nsu=%s env=%s',
+            cnpj, nsu_fmt, 'hom' if self._homologacao else 'prod',
+        )
+        return self._soap_mtls(_URL_NFE[self._homologacao], envelope, _SOAP_ACTION_NFE)
+
+    # ── CT-e ────────────────────────────────────────────────────────────────
+
+    def consulta_ctes_cnpj(self, cnpj: str, nsu: int) -> '_RespostaAdapter':
+        """distNSU CT-e via SOAP 1.2 + mTLS."""
+        nsu_fmt = f'{nsu:015d}'
+        tp_amb = _TP_AMB[self._homologacao]
+        envelope = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">'
+            '<soap12:Body>'
+            '<cteDadosMsg xmlns="http://www.portalfiscal.inf.br/cte/wsdl/CTeDistribuicaoDFe">'
+            f'<distDFeInt versao="1.01" xmlns="http://www.portalfiscal.inf.br/cte">'
+            f'<tpAmb>{tp_amb}</tpAmb>'
+            f'<cUFAutor>{self._codigo_uf}</cUFAutor>'
+            f'<CNPJ>{cnpj}</CNPJ>'
+            '<distNSU>'
+            f'<ultNSU>{nsu_fmt}</ultNSU>'
+            '</distNSU>'
+            '</distDFeInt>'
+            '</cteDadosMsg>'
+            '</soap12:Body>'
+            '</soap12:Envelope>'
+        )
+        logger.info(
+            '[CTE-SOAP] distNSU cnpj=%.8s... nsu=%s env=%s',
+            cnpj, nsu_fmt, 'hom' if self._homologacao else 'prod',
+        )
+        return self._soap_mtls(_URL_CTE[self._homologacao], envelope, _SOAP_ACTION_CTE)
+
+    # ── NFS-e REST ADN ───────────────────────────────────────────────────────
+
+    def enviar_requisicao_rest_mtls(self, url: str, metodo: str = 'GET') -> object:
+        """Requisição REST com mTLS usando PFX em memória."""
+        with self._extrair_pem_temp() as (cert_path, key_path):
+            return requests.request(metodo, url, cert=(cert_path, key_path), timeout=30)
+
     # ── Manifestação ────────────────────────────────────────────────────────
 
-    def enviar_manifestacao(self, cnpj: str, chave_nfe: str, tipo_evento: str = '210210') -> _RespostaAdapter:
-        """Manifestação do Destinatário via SOAP — pendente de implementação sem pynfe."""
-        raise NotImplementedError(
-            'Manifestação SOAP não implementada. pynfe foi removido.'
-        )
+    def enviar_manifestacao(self, cnpj: str, chave_nfe: str, tipo_evento: str = '210210') -> '_RespostaAdapter':
+        """Manifestação do Destinatário via SOAP — pendente de implementação."""
+        raise NotImplementedError('Manifestação SOAP não implementada.')
 
 
 def inicializar_cliente_sefaz(cliente_obj, senha_certificado: str, homologacao: bool = True) -> ConectorSefaz:
     """
-    Ponto de entrada da fábrica. Retorna ConectorSefaz pronto para NFS-e.
-    NF-e e CT-e pendentes de implementação SOAP sem pynfe.
+    Ponto de entrada da fábrica. Retorna ConectorSefaz pronto para NFS-e, NF-e e CT-e.
     """
     cert_db = CertificadoModel.objects.filter(cliente=cliente_obj, ativo=True).first()
     if not cert_db or not cert_db.conteudo_criptografado:

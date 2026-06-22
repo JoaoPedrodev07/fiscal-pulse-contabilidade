@@ -56,7 +56,10 @@ class CTeCapturaService:
         except NotImplementedError:
             return 'NAO_IMPLEMENTADO'
         except Exception as e:
-            logger.error(f"Falha na comunicação SEFAZ CT-e: {e}")
+            logger.error(
+                '[CTE-001] Falha de comunicação SEFAZ cliente=%s cnpj=%s nsu=%s erro=%s',
+                self.cliente.razao_social, self.cliente.cnpj, controle.ultimo_nsu, e,
+            )
             return 'ERRO_CONEXAO'
 
         if resposta.status_code != 200:
@@ -117,7 +120,7 @@ class CTeCapturaService:
                             valor = float(val.text)
 
                     except ET.ParseError:
-                        logger.warning(f"Erro de parser/encoding no CT-e do NSU {nsu_doc}.")
+                        logger.warning('[CTE-002] XML corrompido NSU=%s cliente=%s — ignorado.', nsu_doc, self.cliente.cnpj)
                         continue
 
                     try:
@@ -141,7 +144,7 @@ class CTeCapturaService:
                             except Documento.xml.RelatedObjectDoesNotExist:
                                 Xml.objects.create(documento=documento, conteudo=xml_puro)
                     except Exception as e:
-                        logger.error(f"Erro ao persistir CT-e: {e}")
+                        logger.error('[CTE-003] Falha ao persistir CT-e chave=%.10s... NSU=%s cliente=%s erro=%s', chave, nsu_doc, self.cliente.cnpj, e)
                         continue
 
                 controle.ultimo_nsu = int(ult_nsu)
@@ -154,5 +157,5 @@ class CTeCapturaService:
             return 'REJEITADO'
 
         except ET.ParseError:
-            logger.error('XML do lote CT-e corrompido.')
+            logger.error('[CTE-004] XML do lote corrompido cliente=%s cnpj=%s', self.cliente.razao_social, self.cliente.cnpj)
             return 'XML_CORROMPIDO'

@@ -210,6 +210,33 @@ REST_FRAMEWORK = {
     'EXCEPTION_HANDLER': 'users.views.exception_handler_pt',
 }
 
+# ── Sentry ──────────────────────────────────────────────────────────────────────
+
+SENTRY_DSN = os.environ.get('SENTRY_DSN', '')
+
+if SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.celery import CeleryIntegration
+    from sentry_sdk.integrations.django import DjangoIntegration
+    from sentry_sdk.integrations.logging import LoggingIntegration
+    import logging as _logging
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[
+            DjangoIntegration(transaction_style='url'),
+            CeleryIntegration(monitor_beat_tasks=True),
+            LoggingIntegration(
+                level=_logging.INFO,
+                event_level=_logging.ERROR,
+            ),
+        ],
+        traces_sample_rate=float(os.environ.get('SENTRY_TRACES_RATE', '0.1')),
+        environment='production' if not DEBUG else 'development',
+        release=os.environ.get('GIT_COMMIT', 'unknown'),
+        send_default_pii=False,
+    )
+
 # ── Celery ──────────────────────────────────────────────────────────────────────
 
 CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
@@ -217,6 +244,16 @@ CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
 CELERY_TIMEZONE = 'America/Sao_Paulo'
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutos — limite rígido por tarefa
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+
+# Filas: captura (prioridade normal) e baixa_prioridade (exportações, relatórios)
+CELERY_TASK_ROUTES = {
+    'fiscal.tasks.capturar_cliente_task': {'queue': 'captura'},
+    'fiscal.tasks.executar_recolhimento_lote_nsu': {'queue': 'captura'},
+}
+CELERY_TASK_DEFAULT_QUEUE = 'captura'
 
 if DEBUG:
     # Local sem Redis: executa as tasks de forma síncrona na mesma thread
@@ -227,6 +264,6 @@ CELERY_BEAT_SCHEDULE = {
     'captura-automatica-nfe-cte-carteira': {
         'task': 'fiscal.tasks.executar_recolhimento_lote_nsu',
         'schedule': 14400.0,  # 4 horas
-        'options': {'expires': 3600},
+        'options': {'expires': 3600, 'queue': 'captura'},
     },
 }

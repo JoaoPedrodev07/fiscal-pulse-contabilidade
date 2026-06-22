@@ -16,6 +16,17 @@ logger = logging.getLogger(__name__)
 _HOMOLOGACAO = os.environ.get('SEFAZ_HOMOLOGACAO', 'True') != 'False'
 
 
+def _capturar_sentry(exc, contexto: dict):
+    """Envia exceção ao Sentry com contexto fiscal estruturado, se configurado."""
+    try:
+        import sentry_sdk
+        with sentry_sdk.push_scope() as scope:
+            scope.set_context('fiscal', contexto)
+            sentry_sdk.capture_exception(exc)
+    except Exception:
+        pass  # Sentry não configurado ou indisponível — nunca bloqueia a captura
+
+
 def _esgotar_fila(service, cliente, tipo_doc: str) -> str:
     """
     Loop incremental de NSU sem teto artificial.
@@ -96,7 +107,11 @@ def capturar_cliente(cliente) -> dict:
     except Exception as e:
         sucesso  = False
         mensagem = str(e)
-        logger.error('Falha critica em %s: %s', cliente.razao_social, mensagem)
+        logger.error(
+            '[CAPTURA-001] Falha critica cliente=%s cnpj=%s erro=%s',
+            cliente.razao_social, cliente.cnpj, mensagem,
+        )
+        _capturar_sentry(e, {'cliente_id': cliente.pk, 'cnpj': cliente.cnpj, 'etapa': 'captura_geral'})
 
     LogCaptura.objects.create(
         cliente=cliente,
@@ -110,8 +125,12 @@ def capturar_cliente(cliente) -> dict:
 @shared_task(
     bind=True,
     name='fiscal.tasks.capturar_cliente_task',
-    max_retries=2,
+    max_retries=3,
+    # Backoff exponencial: 1min, 2min, 4min — evita hammering na SEFAZ
     default_retry_delay=60,
+    rate_limit='10/m',  # máx 10 clientes/min por worker — respeita limite da SEFAZ
+    queue='captura',
+    acks_late=True,  # recoloca na fila se o worker cair mid-task
 )
 def capturar_cliente_task(self, cliente_id: int) -> dict:
     """Task isolada por cliente — permite execução paralela via Celery group."""
@@ -119,11 +138,21 @@ def capturar_cliente_task(self, cliente_id: int) -> dict:
         cliente = Cliente.objects.get(pk=cliente_id)
         return capturar_cliente(cliente)
     except Cliente.DoesNotExist:
-        logger.error('capturar_cliente_task: cliente_id=%s não encontrado.', cliente_id)
+        logger.error('[CAPTURA-002] cliente_id=%s não encontrado na base.', cliente_id)
         return {'sucesso': False, 'mensagem': 'Cliente não encontrado.'}
     except Exception as exc:
-        logger.warning('capturar_cliente_task cliente_id=%s erro: %s — retry %s/2', cliente_id, exc, self.request.retries)
-        raise self.retry(exc=exc)
+        tentativa = self.request.retries + 1
+        countdown = 60 * (2 ** self.request.retries)  # 60s, 120s, 240s
+        logger.warning(
+            '[CAPTURA-003] cliente_id=%s tentativa=%d/%d erro=%s retry_em=%ds',
+            cliente_id, tentativa, self.max_retries + 1, exc, countdown,
+        )
+        _capturar_sentry(exc, {
+            'cliente_id': cliente_id,
+            'tentativa': tentativa,
+            'etapa': 'capturar_cliente_task',
+        })
+        raise self.retry(exc=exc, countdown=countdown)
 
 
 @shared_task(name='fiscal.tasks.executar_recolhimento_lote_nsu')
